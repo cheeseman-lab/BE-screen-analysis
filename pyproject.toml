@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "be-screen-analysis"
+version = "0.1.0"
+description = "Analysis of Tyler's base editing screen results"
+readme = "README.md"
+dependencies = [
+    "numpy>=2.0.0",
+    "pandas>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0.0",
+  "ruff>=0.4.0",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "D"]
+# D403: biology terms are case-sensitive (pI, uORF, gnomAD, mRNA) — don't auto-capitalize.
+ignore = ["D403"]
+pydocstyle = { convention = "google" }
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*.py" = ["D100", "D101", "D102", "D103", "D205"]
+"scripts/*.py" = ["D103"]
+"*.ipynb" = ["D100", "D103"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "gpu: requires GPU (structure prediction, embeddings)",
+    "network: requires network access (API calls, downloads)",
+]
+addopts = "-m 'not gpu and not network' --tb=short -q"
