@@ -4,6 +4,9 @@ MAGeCK's median normalisation assumes most guides are neutral, which is false fo
 essential-gene library, so guide LFCs here are centred on the non-targeting controls instead.
 Each gene's median guide LFC is compared with a null built from random sets of 4
 non-targeting guides.
+
+Since S1 is a set of essential genes, CRIPSR knockout of genes should cause dropout. Heuristic
+for editing efficiency.
 """
 
 from pathlib import Path
