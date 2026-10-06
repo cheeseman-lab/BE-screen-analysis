@@ -105,12 +105,72 @@ def load_be_sites(data_dir: Path, screen: str, min_eff: float = 20) -> pd.DataFr
     return sites
 
 
+def load_be_guides(data_dir: Path, screen: str, min_eff: float = 20) -> pd.DataFrame:
+    """One row per guide with sensor efficiency >= ``min_eff`` at D0 or D12, plus site info.
+
+    Site-level MAGeCK columns (``site_*``) come from the codon summary and are NA for sites that
+    are not in it; ``site_median_guide_lfc`` is computed for every site from its kept guides.
+    """
+    guides = pd.read_csv(data_dir / f"{screen}_guide_summary.csv")
+    guides = guides[(guides[EFF_D0] >= min_eff) | (guides[EFF_D12] >= min_eff)].rename(
+        columns={
+            f"{screen}_site_target_id": "site_id",
+            f"{screen}_site_type": "site_type",
+            EFF_D0: "eff_D0",
+            EFF_D12: "eff_D12",
+            "lfc": "guide_lfc",
+            "fdr": "guide_fdr",
+        }
+    )
+    if screen == "stop":
+        guides["site_type"] = "Stop"
+    keep = [
+        "Hugo_Symbol",
+        "ensembl_transcript_id",
+        "site_id",
+        "site_type",
+        "Chromosome",
+        "strand",
+        "reference_codon",
+        "mutated_codon",
+        "target_codon_range",
+        "guide_id",
+        "Protospacer",
+        "eff_D0",
+        "eff_D12",
+        "guide_lfc",
+        "guide_fdr",
+    ]
+    if screen == "stop":
+        keep += ["ClinVar_ID", "Clinical_Significance"]
+    guides = guides[keep]
+
+    sites = load_be_sites(data_dir, screen, min_eff=min_eff).set_index("site_id")
+    site_cols = {"lfc": "site_lfc", "neg_fdr": "site_neg_fdr", "pos_fdr": "site_pos_fdr"}
+    extra = ["overlaps_other_site"] + (["paired_annot_site_id"] if screen == "start" else [])
+    guides = guides.join(sites[[*site_cols, *extra]].rename(columns=site_cols), on="site_id")
+    guides["in_codon_summary"] = guides["site_id"].isin(sites.index)
+    guides["site_median_guide_lfc"] = guides.groupby("site_id")["guide_lfc"].transform("median")
+    guides.insert(0, "screen", screen)
+    return guides.reset_index(drop=True)
+
+
 def filter_be_sites(sites: pd.DataFrame, fdr: float = 0.05) -> pd.DataFrame:
     """Keep sites with >=1 efficient guide and MAGeCK site FDR < ``fdr`` in either direction."""
     neg, pos = sites["neg_fdr"] < fdr, sites["pos_fdr"] < fdr
     out = sites[(sites["n_efficient_guides"] > 0) & (neg | pos)].copy()
     out["direction"] = np.where(neg[out.index], "depleted", "enriched")
     return out
+
+
+def centred_guide_lfc(
+    counts: pd.DataFrame, ref: str, cols: dict[str, str], is_control: pd.Series
+) -> pd.DataFrame:
+    """Guide log2 CPM fold change of each ``cols`` sample vs ``ref``, centred on control guides."""
+    samples = [ref, *cols]
+    cpm = counts[samples].div(counts[samples].sum()) * 1e6
+    lfc = np.log2((cpm[list(cols)] + 1).div(cpm[ref] + 1, axis=0))
+    return lfc.sub(lfc[is_control].median())
 
 
 def nt_centred_guide_lfc(
@@ -121,10 +181,7 @@ def nt_centred_guide_lfc(
     nt: str = S1_NT,
 ) -> pd.DataFrame:
     """Guide log2 CPM fold change of each ``cols`` sample vs ``ref``, centred on NT guides."""
-    samples = [ref, *cols]
-    cpm = counts[samples].div(counts[samples].sum()) * 1e6
-    lfc = np.log2((cpm[list(cols)] + 1).div(cpm[ref] + 1, axis=0))
-    return lfc.sub(lfc[counts[gene_col] == nt].median())
+    return centred_guide_lfc(counts, ref, cols, counts[gene_col] == nt)
 
 
 def nt_null(
@@ -191,16 +248,26 @@ def s5_control_ids(ids: pd.Index, counts: pd.DataFrame) -> pd.Series:
     return pd.Series(is_ctrl, index=ids)
 
 
-def s5_dropout_labels(counts: pd.DataFrame, genes: set[str], alpha: float = 0.05) -> pd.DataFrame:
-    """Essential-dropout labels from S5 counts (78h remaining vs 0h), filled only for ``genes``."""
-    lfc = nt_centred_guide_lfc(
-        counts, ref=S5_DAY0, cols=S5_REMAINING, gene_col="target_symbol", nt=S5_NT
-    )
-    is_nt = counts["target_symbol"] == S5_NT
+def s5_dropout_labels(
+    counts: pd.DataFrame, genes: set[str], alpha: float = 0.05, control: str = "nontargeting"
+) -> pd.DataFrame:
+    """Essential-dropout labels from S5 counts (78h remaining vs 0h), filled only for ``genes``.
+
+    ``control`` picks the constructs used to centre the LFCs and build the 2-construct null:
+    "nontargeting" (no cut) or "intergenic" (cut DNA but disrupt no gene, so the label measures
+    dropout beyond cutting toxicity).
+    """
+    if control == "nontargeting":
+        is_ctrl = counts["target_symbol"] == S5_NT
+    elif control == "intergenic":
+        is_ctrl = counts["category"] == "INTERGENIC_CONTROL"
+    else:
+        raise ValueError(f"unknown control: {control!r}")
+    lfc = centred_guide_lfc(counts, S5_DAY0, S5_REMAINING, is_ctrl)
     keep = counts["target_symbol"].isin(genes)
     gene_lfc = lfc[keep].groupby(counts.loc[keep, "target_symbol"]).median()
     col = list(S5_REMAINING)[0]
-    cutoff = nt_null(lfc, is_nt, guides_per_gene=2)[col].quantile(alpha)
+    cutoff = nt_null(lfc, is_ctrl, guides_per_gene=2)[col].quantile(alpha)
     return pd.DataFrame(
         {
             f"dropout_lfc_{S5_REMAINING[col]}": gene_lfc[col],
@@ -209,13 +276,14 @@ def s5_dropout_labels(counts: pd.DataFrame, genes: set[str], alpha: float = 0.05
     )
 
 
-def filter_s5(
+def s5_gene_table(
     tables: dict[str, pd.DataFrame],
     counts: pd.DataFrame,
     s1_genes: set[str],
     fdr: float = 0.05,
+    control: str = "nontargeting",
 ) -> pd.DataFrame:
-    """Keep S5 genes (controls removed) with FDR < ``fdr`` (neg or pos) in any comparison."""
+    """All S5 genes (controls removed) with per-comparison stats, pass columns and labels."""
     tables = {c: t.set_index("id") for c, t in tables.items()}
     ids = next(iter(tables.values())).index
     ids = ids[~s5_control_ids(ids, counts).to_numpy()]
@@ -226,11 +294,21 @@ def filter_s5(
         table[f"{c}_pos_fdr"] = t["pos|fdr"].reindex(ids)
     table = _add_pass_columns(table, list(tables), fdr)
     table["in_s1_essential"] = table.index.isin(s1_genes)
-    table = table.join(s5_dropout_labels(counts, s1_genes & set(ids)))
+    table = table.join(s5_dropout_labels(counts, s1_genes & set(ids), control=control))
     table["dropout_consistent"] = table["dropout_consistent"].astype("boolean")
-    out = table[table["n_comparisons_passed"] > 0]
-    out.insert(0, "cell_line", "HeLa")
-    return out.rename_axis("Hugo_Symbol").reset_index()
+    table.insert(0, "cell_line", "HeLa")
+    return table.rename_axis("Hugo_Symbol").reset_index()
+
+
+def filter_s5(
+    tables: dict[str, pd.DataFrame],
+    counts: pd.DataFrame,
+    s1_genes: set[str],
+    fdr: float = 0.05,
+) -> pd.DataFrame:
+    """Keep S5 genes (controls removed) with FDR < ``fdr`` (neg or pos) in any comparison."""
+    table = s5_gene_table(tables, counts, s1_genes, fdr)
+    return table[table["n_comparisons_passed"] > 0].reset_index(drop=True)
 
 
 def intersect(be: pd.DataFrame, screen: pd.DataFrame) -> pd.DataFrame:

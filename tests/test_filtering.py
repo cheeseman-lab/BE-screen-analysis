@@ -6,7 +6,9 @@ from be_screen_analysis.filtering import (
     filter_s5,
     flag_overlaps,
     intersect,
+    load_be_guides,
     s5_control_ids,
+    s5_dropout_labels,
 )
 
 
@@ -125,3 +127,56 @@ def test_filter_s5_either_comparison_controls_dropped_label_only_essential():
     assert out.loc["A", "dropout_consistent"]
     assert pd.isna(out.loc["B", "dropout_consistent"])
     assert pd.isna(out.loc["B", "dropout_lfc_78h"])
+
+
+def test_load_be_guides_filters_per_guide_and_blanks_unscored_sites(tmp_path):
+    summary = _start_summary()
+    summary.to_csv(tmp_path / "start_codon_summary.csv", index=False)
+    eff0 = "sensor_mean_D0_pct_successful_target_codon_mutation"
+    eff12 = "sensor_mean_D12_pct_successful_target_codon_mutation"
+    guides = pd.DataFrame(
+        {
+            "Hugo_Symbol": ["A", "A", "A", "C"],
+            "ensembl_transcript_id": "ENST1",
+            "start_site_target_id": ["A-1", "A-1", "A-1", "C-1"],
+            "start_site_type": ["Annotated"] * 4,
+            "Chromosome": "1",
+            "strand": 1,
+            "reference_codon": "ATG",
+            "mutated_codon": "ACG",
+            "target_codon_range": ["10;12", "10;12", "10;12", "90;92"],
+            "guide_id": ["g1", "g2", "g3", "g4"],
+            "Protospacer": "ACGT",
+            eff0: [10, 50, 5, 90],
+            eff12: [30, 10, 5, 90],
+            "lfc": [-1.0, -3.0, 9.0, 0.5],
+            "fdr": [0.01, 0.01, 0.9, 0.5],
+        }
+    )
+    guides.to_csv(tmp_path / "start_guide_summary.csv", index=False)
+    out = load_be_guides(tmp_path, "start").set_index("guide_id")
+    assert sorted(out.index) == ["g1", "g2", "g4"]  # g3 fails both D0 and D12
+    assert out.loc["g1", "site_median_guide_lfc"] == -2.0  # median of kept guides only
+    assert out.loc["g1", "in_codon_summary"] and out.loc["g1", "site_neg_fdr"] == 0.01
+    assert not out.loc["g4", "in_codon_summary"] and pd.isna(out.loc["g4", "site_lfc"])
+
+
+def test_s5_dropout_label_intergenic_null_absorbs_cutting_effect():
+    # intergenic constructs drop like gene A; NT does not -> A is dropout vs NT but not intergenic
+    n_ctrl = 6
+    counts = pd.DataFrame(
+        {
+            "target_symbol": ["NONTARGETING_CONTROL"] * n_ctrl
+            + ["INTERGENIC_CONTROL_chr1"] * n_ctrl
+            + ["A", "A"],
+            "category": ["NONTARGETING_CONTROL"] * n_ctrl
+            + ["INTERGENIC_CONTROL"] * n_ctrl
+            + ["GENE_TARGETING"] * 2,
+            "0h": [100] * (2 * n_ctrl + 2),
+            "78h_remaining": [100, 101, 99, 100, 102, 98] + [50, 51, 49, 50, 52, 48] + [50, 50],
+        }
+    )
+    nt = s5_dropout_labels(counts, {"A"}, control="nontargeting")
+    ig = s5_dropout_labels(counts, {"A"}, control="intergenic")
+    assert nt.loc["A", "dropout_consistent"]
+    assert not ig.loc["A", "dropout_consistent"]
