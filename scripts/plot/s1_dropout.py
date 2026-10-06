@@ -17,9 +17,9 @@ import pandas as pd
 
 from be_screen_analysis.filtering import S1_NT, S1_REMAINING, nt_centred_guide_lfc, nt_null
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 COUNTS = ROOT / "data" / "shakeoff_data" / "table_s1" / "HeLa_sgRNA_sequences_and_counts.csv"
-OUT_DIR = ROOT / "figures"
+OUT_DIR = ROOT / "figures" / "be_s1"
 
 DAYS = S1_REMAINING
 NT = S1_NT

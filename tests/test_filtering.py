@@ -3,8 +3,10 @@ import pandas as pd
 from be_screen_analysis.filtering import (
     _start_sites,
     filter_be_sites,
+    filter_s5,
     flag_overlaps,
     intersect,
+    s5_control_ids,
 )
 
 
@@ -86,3 +88,40 @@ def test_intersect_keeps_all_sites_of_matching_gene():
     out = intersect(be, s1)
     assert out["site_id"].tolist() == ["A-1", "A-2"]
     assert "cell_line" not in out
+
+
+def _s5_counts():
+    # 4 NT constructs, 2 constructs each for genes A (essential, drops out) and B (not essential)
+    return pd.DataFrame(
+        {
+            "target_symbol": ["NONTARGETING_CONTROL"] * 4 + ["A", "A", "B", "B", "OR1A1"],
+            "category": ["NONTARGETING_CONTROL"] * 4 + ["GENE_TARGETING"] * 4 + ["OR_CONTROL"],
+            "0h": [100, 100, 100, 100, 100, 100, 100, 100, 100],
+            "78h_remaining": [100, 101, 99, 100, 10, 12, 100, 100, 100],
+        }
+    )
+
+
+def _s5_table(neg, pos):
+    ids = ["A", "B", "C", "NONTARGETING_CONTROL", "INTERGENIC_CONTROL_chr1", "OR1A1"]
+    return pd.DataFrame({"id": ids, "neg|lfc": 0.0, "neg|fdr": neg, "pos|fdr": pos})
+
+
+def test_s5_control_ids():
+    ids = pd.Index(["A", "NONTARGETING_CONTROL", "INTERGENIC_CONTROL_chr1", "OR1A1"])
+    assert s5_control_ids(ids, _s5_counts()).tolist() == [False, True, True, True]
+
+
+def test_filter_s5_either_comparison_controls_dropped_label_only_essential():
+    tables = {
+        "shakeoff": _s5_table([0.9, 0.9, 0.9, 0.01, 0.01, 0.01], [0.9, 0.01, 0.9, 1, 1, 1]),
+        "dropout": _s5_table([0.01, 0.9, 0.9, 0.01, 0.01, 0.01], [0.9, 0.9, 0.9, 1, 1, 1]),
+    }
+    out = filter_s5(tables, _s5_counts(), s1_genes={"A"}).set_index("Hugo_Symbol")
+    assert sorted(out.index) == ["A", "B"]
+    assert out.loc["A", "comparisons_passed"] == "dropout:neg"
+    assert out.loc["B", "comparisons_passed"] == "shakeoff:pos"
+    assert out.loc["A", "in_s1_essential"] and not out.loc["B", "in_s1_essential"]
+    assert out.loc["A", "dropout_consistent"]
+    assert pd.isna(out.loc["B", "dropout_consistent"])
+    assert pd.isna(out.loc["B", "dropout_lfc_78h"])

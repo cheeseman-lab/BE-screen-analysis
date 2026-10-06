@@ -1,8 +1,8 @@
-"""Preliminary filtering of the ABE start/stop screen and the S1 HeLa shake-off screen.
+"""BE x S1 filtering of the ABE start/stop screen and the S1 HeLa shake-off screen.
 
 The ABE screen was done in HeLa, so only the HeLa S1 comparisons are used (RPE1 is ignored).
 
-Writes three CSVs to results/preliminary/:
+Writes be_sites_filtered.csv to results/ (shared with be_s5) and two CSVs to results/be_s1/:
   1. be_sites_filtered.csv      sites with >=1 efficient guide and MAGeCK site FDR < 0.05
   2. s1_hela_filtered.csv       S1 HeLa genes with FDR < 0.05 in any shake-off/dropout comparison
   3. be_x_s1_intersection.csv   every BE site whose gene is in (2)
@@ -22,7 +22,7 @@ from be_screen_analysis.filtering import (
 ROOT = Path(__file__).resolve().parents[1]
 BE_DIR = ROOT / "data" / "start_stop_ABE_screen_data"
 S1_DIR = ROOT / "data" / "shakeoff_data" / "table_s1"
-OUT_DIR = ROOT / "results" / "preliminary"
+OUT_DIR = ROOT / "results" / "be_s1"
 
 MIN_EFF = 20
 FDR = 0.05
@@ -65,7 +65,7 @@ def main() -> None:
     # ADPRS), so a few true matches can be missed.
     both = intersect(be, s1)
 
-    be.to_csv(OUT_DIR / "be_sites_filtered.csv", index=False)
+    be.to_csv(OUT_DIR.parent / "be_sites_filtered.csv", index=False)
     s1.to_csv(OUT_DIR / "s1_hela_filtered.csv", index=False)
     both.to_csv(OUT_DIR / "be_x_s1_intersection.csv", index=False)
 

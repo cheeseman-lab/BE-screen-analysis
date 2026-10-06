@@ -24,6 +24,11 @@ S1_DROPOUT_CMPS = ["d2r_d0", "d3r_d0", "d4r_d0", "d5r_d0"]
 S1_CMPS = S1_SHAKEOFF_CMPS + S1_DROPOUT_CMPS
 S1_NT = "nontargeting"
 
+S5_CMPS = {"shakeoff": "MAGeCK_shake-off_screen.csv", "dropout": "MAGeCK_abundance_78h_DOX.csv"}
+S5_NT = "NONTARGETING_CONTROL"
+S5_DAY0 = "0h"
+S5_REMAINING = {"78h_remaining": "78h"}
+
 
 def _start_sites(summary: pd.DataFrame) -> pd.DataFrame:
     """Unstack annotated/nc pairs into one row per unique start site."""
@@ -108,12 +113,18 @@ def filter_be_sites(sites: pd.DataFrame, fdr: float = 0.05) -> pd.DataFrame:
     return out
 
 
-def nt_centred_guide_lfc(counts: pd.DataFrame) -> pd.DataFrame:
-    """Guide log2 CPM fold change of each remaining timepoint vs Day0, centred on NT guides."""
-    cols = [S1_DAY0, *S1_REMAINING]
-    cpm = counts[cols].div(counts[cols].sum()) * 1e6
-    lfc = np.log2((cpm[list(S1_REMAINING)] + 1).div(cpm[S1_DAY0] + 1, axis=0))
-    return lfc.sub(lfc[counts["gene"] == S1_NT].median())
+def nt_centred_guide_lfc(
+    counts: pd.DataFrame,
+    ref: str = S1_DAY0,
+    cols: dict[str, str] = S1_REMAINING,
+    gene_col: str = "gene",
+    nt: str = S1_NT,
+) -> pd.DataFrame:
+    """Guide log2 CPM fold change of each ``cols`` sample vs ``ref``, centred on NT guides."""
+    samples = [ref, *cols]
+    cpm = counts[samples].div(counts[samples].sum()) * 1e6
+    lfc = np.log2((cpm[list(cols)] + 1).div(cpm[ref] + 1, axis=0))
+    return lfc.sub(lfc[counts[gene_col] == nt].median())
 
 
 def nt_null(
@@ -142,28 +153,86 @@ def s1_dropout_labels(counts: pd.DataFrame, alpha: float = 0.05) -> pd.DataFrame
     )
 
 
+def _add_pass_columns(table: pd.DataFrame, cmps: list[str], fdr: float) -> pd.DataFrame:
+    """Add n_comparisons_passed / comparisons_passed from ``{cmp}_{neg,pos}_fdr`` columns."""
+    passed = pd.concat(
+        [
+            (table[f"{c}_{d}_fdr"] < fdr).map({True: f"{c}:{d}", False: ""})
+            for c in cmps
+            for d in ("neg", "pos")
+        ],
+        axis=1,
+    )
+    table["n_comparisons_passed"] = (passed != "").sum(axis=1)
+    table["comparisons_passed"] = passed.apply(lambda r: ";".join(x for x in r if x), axis=1)
+    return table
+
+
 def filter_s1_hela(
     neg: pd.DataFrame, pos: pd.DataFrame, counts: pd.DataFrame, fdr: float = 0.05
 ) -> pd.DataFrame:
     """Keep S1 HeLa genes with FDR < ``fdr`` (neg or pos) in any shake-off/dropout comparison."""
     neg, pos = neg.set_index("id").drop(S1_NT), pos.set_index("id").drop(S1_NT)
     table = pd.DataFrame(index=neg.index)
-    passed = []
     for c in S1_CMPS:
         table[f"{c}_lfc"] = neg[f"{c}.neg.lfc"]
         table[f"{c}_neg_fdr"] = neg[f"{c}.neg.fdr"]
         table[f"{c}_pos_fdr"] = pos[f"{c}.pos.fdr"].reindex(neg.index)
-        for d in ("neg", "pos"):
-            passed.append((table[f"{c}_{d}_fdr"] < fdr).map({True: f"{c}:{d}", False: ""}))
-    passed = pd.concat(passed, axis=1)
-    table["n_comparisons_passed"] = (passed != "").sum(axis=1)
-    table["comparisons_passed"] = passed.apply(lambda r: ";".join(x for x in r if x), axis=1)
-    table = table.join(s1_dropout_labels(counts))
+    table = _add_pass_columns(table, S1_CMPS, fdr).join(s1_dropout_labels(counts))
     out = table[table["n_comparisons_passed"] > 0]
     out.insert(0, "cell_line", "HeLa")
     return out.rename_axis("Hugo_Symbol").reset_index()
 
 
-def intersect(be: pd.DataFrame, s1: pd.DataFrame) -> pd.DataFrame:
-    """Keep every BE site whose gene passes the S1 filter, joined with the S1 gene columns."""
-    return be.merge(s1.drop(columns="cell_line"), on="Hugo_Symbol", how="inner")
+def s5_control_ids(ids: pd.Index, counts: pd.DataFrame) -> pd.Series:
+    """Flag S5 MAGeCK ids that are controls: non-targeting, intergenic or olfactory receptor."""
+    or_genes = set(counts.loc[counts["category"] == "OR_CONTROL", "target_symbol"])
+    is_ctrl = ids.str.startswith((S5_NT, "INTERGENIC_CONTROL")) | ids.isin(or_genes)
+    return pd.Series(is_ctrl, index=ids)
+
+
+def s5_dropout_labels(counts: pd.DataFrame, genes: set[str], alpha: float = 0.05) -> pd.DataFrame:
+    """Essential-dropout labels from S5 counts (78h remaining vs 0h), filled only for ``genes``."""
+    lfc = nt_centred_guide_lfc(
+        counts, ref=S5_DAY0, cols=S5_REMAINING, gene_col="target_symbol", nt=S5_NT
+    )
+    is_nt = counts["target_symbol"] == S5_NT
+    keep = counts["target_symbol"].isin(genes)
+    gene_lfc = lfc[keep].groupby(counts.loc[keep, "target_symbol"]).median()
+    col = list(S5_REMAINING)[0]
+    cutoff = nt_null(lfc, is_nt, guides_per_gene=2)[col].quantile(alpha)
+    return pd.DataFrame(
+        {
+            f"dropout_lfc_{S5_REMAINING[col]}": gene_lfc[col],
+            "dropout_consistent": gene_lfc[col] < cutoff,
+        }
+    )
+
+
+def filter_s5(
+    tables: dict[str, pd.DataFrame],
+    counts: pd.DataFrame,
+    s1_genes: set[str],
+    fdr: float = 0.05,
+) -> pd.DataFrame:
+    """Keep S5 genes (controls removed) with FDR < ``fdr`` (neg or pos) in any comparison."""
+    tables = {c: t.set_index("id") for c, t in tables.items()}
+    ids = next(iter(tables.values())).index
+    ids = ids[~s5_control_ids(ids, counts).to_numpy()]
+    table = pd.DataFrame(index=ids)
+    for c, t in tables.items():
+        table[f"{c}_lfc"] = t["neg|lfc"].reindex(ids)
+        table[f"{c}_neg_fdr"] = t["neg|fdr"].reindex(ids)
+        table[f"{c}_pos_fdr"] = t["pos|fdr"].reindex(ids)
+    table = _add_pass_columns(table, list(tables), fdr)
+    table["in_s1_essential"] = table.index.isin(s1_genes)
+    table = table.join(s5_dropout_labels(counts, s1_genes & set(ids)))
+    table["dropout_consistent"] = table["dropout_consistent"].astype("boolean")
+    out = table[table["n_comparisons_passed"] > 0]
+    out.insert(0, "cell_line", "HeLa")
+    return out.rename_axis("Hugo_Symbol").reset_index()
+
+
+def intersect(be: pd.DataFrame, screen: pd.DataFrame) -> pd.DataFrame:
+    """Keep every BE site whose gene passes the screen filter, joined with its gene columns."""
+    return be.merge(screen.drop(columns="cell_line"), on="Hugo_Symbol", how="inner")
