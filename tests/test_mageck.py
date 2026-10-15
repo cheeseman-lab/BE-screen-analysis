@@ -17,6 +17,8 @@ def test_count_table_groups_by_site_unassigned_and_controls():
     out = mageck_count_table(counts, guides, "start")
     assert out["Gene"].tolist() == ["NT_CTRL", "AAVS1_CTRL", "A-1_Annotated_ATG", "A_unassigned"]
     assert list(out.columns) == ["Gene", "D0-rep1"]  # pooled day columns dropped
+    ko = mageck_count_table(counts)  # no guide summary: grouped by gene
+    assert ko["Gene"].tolist() == ["NT_CTRL", "AAVS1_CTRL", "A", "A"]
 
 
 def test_read_mageck_and_augment(tmp_path):

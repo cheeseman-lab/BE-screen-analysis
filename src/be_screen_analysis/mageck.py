@@ -29,16 +29,22 @@ SITE_COLS = {
 }
 
 
-def mageck_count_table(counts: pd.DataFrame, guides: pd.DataFrame, screen: str) -> pd.DataFrame:
-    """MAGeCK count table from ``load_be_counts`` output, with ``Gene`` set to the guide's site.
+def mageck_count_table(
+    counts: pd.DataFrame, guides: pd.DataFrame | None = None, screen: str | None = None
+) -> pd.DataFrame:
+    """MAGeCK count table from ``load_be_counts`` output.
 
-    Count guides missing from the guide summary get ``{Hugo_Symbol}_unassigned``; controls keep
-    their label (``NT_CTRL`` / ``AAVS1_CTRL``).
+    With a guide summary, ``Gene`` is the guide's site (codon guides; count guides missing from
+    the summary get ``{Hugo_Symbol}_unassigned``). Without one, ``Gene`` is ``Hugo_Symbol`` (KO
+    guides). Controls keep their label (``NT_CTRL`` / ``AAVS1_CTRL``).
     """
-    site = guides.set_index("guide_id")[f"{screen}_site_target_id"]
     is_control = counts["Gene"].isin(BE_CONTROLS)
-    gene = counts.index.to_series().map(site)
-    gene = gene.fillna(counts["Hugo_Symbol"] + "_unassigned").where(~is_control, counts["Gene"])
+    if guides is None:
+        gene = counts["Hugo_Symbol"]
+    else:
+        site = guides.set_index("guide_id")[f"{screen}_site_target_id"]
+        gene = counts.index.to_series().map(site).fillna(counts["Hugo_Symbol"] + "_unassigned")
+    gene = gene.where(~is_control, counts["Gene"])
     reps = [c for c in counts.columns if "-rep" in c]
     return pd.concat([gene.rename("Gene"), counts[reps]], axis=1).rename_axis("sgRNA")
 
