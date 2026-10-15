@@ -6,6 +6,7 @@ from be_screen_analysis.filtering import (
     filter_s5,
     flag_overlaps,
     intersect,
+    load_be_counts,
     load_be_guides,
     s5_control_ids,
     s5_dropout_labels,
@@ -180,3 +181,16 @@ def test_s5_dropout_label_intergenic_null_absorbs_cutting_effect():
     ig = s5_dropout_labels(counts, {"A"}, control="intergenic")
     assert nt.loc["A", "dropout_consistent"]
     assert not ig.loc["A", "dropout_consistent"]
+
+
+def test_load_be_counts_categories_symbols_and_pooled_days(tmp_path):
+    reps = {f"{d}-rep{r}": [1, 2, 3] for d in ("D0", "D4", "D6", "D12", "D21") for r in (1, 2, 3)}
+    raw = pd.DataFrame(
+        {"sgRNA": ["c1", "c2", "g1"], "Gene": ["AAVS1_CTRL", "NT_CTRL", "AAAS_KO"], **reps}
+    )
+    raw.to_csv(tmp_path / "ABE_start_KO_count_matrix_perturbation_level.csv", index=False)
+    out = load_be_counts(tmp_path, "start", ko=True)
+    assert out["category"].tolist() == ["AAVS1", "NT", "ko"]
+    assert out["Hugo_Symbol"].isna().tolist() == [True, True, False]
+    assert out.loc["g1", "Hugo_Symbol"] == "AAAS"
+    assert out.loc["g1", "D12"] == 9  # three replicates of 3 summed

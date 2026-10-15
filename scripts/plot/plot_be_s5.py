@@ -34,7 +34,7 @@ from be_screen_analysis.plotting import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-BE_DIR = ROOT / "data" / "start_stop_ABE_screen_data"
+BE_DIR = ROOT / "data" / "start_stop_ABE_screen_data" / "summaries"
 S1_DIR = ROOT / "data" / "shakeoff_data" / "table_s1"
 S5_DIR = ROOT / "data" / "shakeoff_data" / "table_s5"
 BE_FILTERED = ROOT / "results" / "be_sites_filtered.csv"

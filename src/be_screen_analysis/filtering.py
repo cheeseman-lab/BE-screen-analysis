@@ -12,6 +12,9 @@ EFF_D0 = "sensor_mean_D0_pct_successful_target_codon_mutation"
 EFF_D12 = "sensor_mean_D12_pct_successful_target_codon_mutation"
 STAT_COLS = ["num_guides", "lfc", "neg_fdr", "pos_fdr"]
 
+BE_DAYS = ["D0", "D4", "D6", "D12", "D21"]
+BE_CONTROLS = {"AAVS1_CTRL": "AAVS1", "NT_CTRL": "NT"}
+
 S1_DAY0 = "Day0"
 S1_REMAINING = {
     "day2_remaining": "D2",
@@ -153,6 +156,29 @@ def load_be_guides(data_dir: Path, screen: str, min_eff: float = 20) -> pd.DataF
     guides["site_median_guide_lfc"] = guides.groupby("site_id")["guide_lfc"].transform("median")
     guides.insert(0, "screen", screen)
     return guides.reset_index(drop=True)
+
+
+def load_be_counts(counts_dir: Path, screen: str, ko: bool = False) -> pd.DataFrame:
+    """Raw guide counts for one ABE sub-library, indexed by sgRNA (= guide_id in the summaries).
+
+    ``ko=False`` gives the codon guides behind ``{screen}_guide_summary.csv`` (plus ~100 guides
+    the summary leaves out); ``ko=True`` gives the gene knockout guides (~4 per gene) sequenced in
+    the same samples. Both carry the same AAVS1 (cutting) and non-targeting controls.
+
+    Keeps the per-replicate columns (``D0-rep1`` ...) and adds one pooled column per day
+    (``D0`` ... ``D21``, replicates summed), so the result feeds ``centred_guide_lfc`` directly.
+    ``category`` is "codon", "ko", "AAVS1" or "NT"; ``Hugo_Symbol`` is NA for controls.
+    """
+    name = f"ABE_{screen}_KO" if ko else f"ABE_{screen}"
+    counts = pd.read_csv(counts_dir / f"{name}_count_matrix_perturbation_level.csv")
+    counts = counts.set_index("sgRNA")
+    is_control = counts["Gene"].isin(BE_CONTROLS)
+    counts["category"] = counts["Gene"].map(BE_CONTROLS).fillna("ko" if ko else "codon")
+    symbol = counts["Gene"].str.replace(r"_(start|stop|KO)$", "", regex=True)
+    counts["Hugo_Symbol"] = symbol.where(~is_control)
+    for day in BE_DAYS:
+        counts[day] = counts.filter(regex=rf"^{day}-rep\d+$").sum(axis=1)
+    return counts
 
 
 def filter_be_sites(sites: pd.DataFrame, fdr: float = 0.05) -> pd.DataFrame:

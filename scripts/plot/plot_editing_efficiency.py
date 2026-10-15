@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[2]
-DATA_DIR = ROOT / "data" / "start_stop_ABE_screen_data"
+DATA_DIR = ROOT / "data" / "start_stop_ABE_screen_data" / "summaries"
 OUT_DIR = ROOT / "figures"
 
 COL = "sensor_mean_{day}_pct_successful_target_codon_mutation"
