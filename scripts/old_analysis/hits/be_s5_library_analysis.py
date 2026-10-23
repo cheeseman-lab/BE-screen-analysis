@@ -1,6 +1,6 @@
 """Guide-level candidate library for a follow-up screen: ABE start/stop x S5 (HeLa), no FDR.
 
-Writes results/be_s5_library/be_s5_library_guides.csv, one row per ABE guide.
+Writes results/old_analysis/hits/be_s5_library/be_s5_library_guides.csv, one row per ABE guide.
 """
 
 from pathlib import Path
@@ -9,11 +9,11 @@ import pandas as pd
 
 from be_screen_analysis.filtering import S5_CMPS, load_be_guides, s5_gene_table
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 BE_DIR = ROOT / "data" / "start_stop_ABE_screen_data" / "summaries"
 S1_DIR = ROOT / "data" / "shakeoff_data" / "table_s1"
 S5_DIR = ROOT / "data" / "shakeoff_data" / "table_s5"
-OUT_DIR = ROOT / "results" / "be_s5_library"
+OUT_DIR = ROOT / "results" / "old_analysis" / "hits" / "be_s5_library"
 
 MIN_EFF = 20
 

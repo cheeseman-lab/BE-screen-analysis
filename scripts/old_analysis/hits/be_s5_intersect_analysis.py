@@ -1,8 +1,9 @@
 """BE x S5 filtering of the ABE start/stop screen and the S5 genome-wide HeLa shake-off screen.
 
-Reuses the filtered base editing sites from be_s1 (run scripts/be_s1_intersect_analysis.py first).
+Reuses the filtered base editing sites from be_s1 (run
+scripts/old_analysis/hits/be_s1_intersect_analysis.py first).
 
-Writes two CSVs to results/be_s5/:
+Writes two CSVs to results/old_analysis/hits/be_s5/:
   1. s5_hela_filtered.csv       S5 genes with FDR < 0.05 in the shake-off or dropout comparison
   2. be_x_s5_intersection.csv   every filtered BE site whose gene is in (1)
 """
@@ -14,18 +15,21 @@ import pandas as pd
 
 from be_screen_analysis.filtering import S5_CMPS, filter_s5, intersect
 
-ROOT = Path(__file__).resolve().parents[1]
-BE_FILTERED = ROOT / "results" / "be_sites_filtered.csv"
+ROOT = Path(__file__).resolve().parents[3]
+BE_FILTERED = ROOT / "results" / "old_analysis" / "hits" / "be_sites_filtered.csv"
 S1_DIR = ROOT / "data" / "shakeoff_data" / "table_s1"
 S5_DIR = ROOT / "data" / "shakeoff_data" / "table_s5"
-OUT_DIR = ROOT / "results" / "be_s5"
+OUT_DIR = ROOT / "results" / "old_analysis" / "hits" / "be_s5"
 
 FDR = 0.05
 
 
 def main() -> None:
     if not BE_FILTERED.exists():
-        sys.exit(f"{BE_FILTERED} not found; run scripts/be_s1_intersect_analysis.py first")
+        sys.exit(
+            f"{BE_FILTERED} not found; "
+            "run scripts/old_analysis/hits/be_s1_intersect_analysis.py first"
+        )
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
     # Same base editing sites as be_s1: >=1 guide >= 20% sensor efficiency at D0 or D12 and

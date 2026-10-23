@@ -2,7 +2,8 @@
 
 The ABE screen was done in HeLa, so only the HeLa S1 comparisons are used (RPE1 is ignored).
 
-Writes be_sites_filtered.csv to results/ (shared with be_s5) and two CSVs to results/be_s1/:
+Writes be_sites_filtered.csv to results/old_analysis/hits/ (shared with be_s5) and two CSVs to
+results/old_analysis/hits/be_s1/:
   1. be_sites_filtered.csv      sites with >=1 efficient guide and MAGeCK site FDR < 0.05
   2. s1_hela_filtered.csv       S1 HeLa genes with FDR < 0.05 in any shake-off/dropout comparison
   3. be_x_s1_intersection.csv   every BE site whose gene is in (2)
@@ -19,10 +20,10 @@ from be_screen_analysis.filtering import (
     load_be_sites,
 )
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 BE_DIR = ROOT / "data" / "start_stop_ABE_screen_data" / "summaries"
 S1_DIR = ROOT / "data" / "shakeoff_data" / "table_s1"
-OUT_DIR = ROOT / "results" / "be_s1"
+OUT_DIR = ROOT / "results" / "old_analysis" / "hits" / "be_s1"
 
 MIN_EFF = 20
 FDR = 0.05

@@ -1,7 +1,8 @@
 """Figures for the BE x S5 (ABE start/stop x S5 genome-wide HeLa shake-off) analysis.
 
-Run scripts/be_s5_intersect_analysis.py first; this reads its CSVs from results/be_s5/ and the
-filtered BE sites from results/be_sites_filtered.csv.
+Run scripts/old_analysis/hits/be_s5_intersect_analysis.py first; this reads its CSVs
+from results/old_analysis/hits/be_s5/ and the filtered BE sites from
+results/old_analysis/hits/be_sites_filtered.csv.
   1. be_vs_s5_shakeoff_start.png  annotated ATG LFC (BE) vs 78h shake-off LFC (S5), per gene
   2. be_vs_s5_shakeoff_stop.png   stop codon LFC (BE) vs 78h shake-off LFC (S5), per stop site
   3. s5_dropout_essential.png     78h dropout: S1 essential subset vs other genes vs NT and
@@ -33,13 +34,13 @@ from be_screen_analysis.plotting import (
     style,
 )
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 BE_DIR = ROOT / "data" / "start_stop_ABE_screen_data" / "summaries"
 S1_DIR = ROOT / "data" / "shakeoff_data" / "table_s1"
 S5_DIR = ROOT / "data" / "shakeoff_data" / "table_s5"
-BE_FILTERED = ROOT / "results" / "be_sites_filtered.csv"
-RES_DIR = ROOT / "results" / "be_s5"
-OUT_DIR = ROOT / "figures" / "be_s5"
+BE_FILTERED = ROOT / "results" / "old_analysis" / "hits" / "be_sites_filtered.csv"
+RES_DIR = ROOT / "results" / "old_analysis" / "hits" / "be_s5"
+OUT_DIR = ROOT / "figures" / "old_analysis" / "hits" / "be_s5"
 
 S5_XLABEL = "S5 HeLa 78h shake-off vs remaining, log2FC\n(> 0: knockout cells detach)"
 ALPHA = 0.05

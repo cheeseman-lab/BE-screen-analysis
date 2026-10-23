@@ -1,6 +1,7 @@
 """Figures for the BE x S1 (ABE start/stop x S1 HeLa shake-off) analysis.
 
-Run scripts/be_s1_intersect_analysis.py first; this reads its CSVs from results/be_s1/.
+Run scripts/old_analysis/hits/be_s1_intersect_analysis.py first; this reads its CSVs
+from results/old_analysis/hits/be_s1/.
   1. be_vs_s1_shakeoff_start.png annotated ATG LFC (BE) vs D5 shake-off LFC (S1), per gene
   2. be_vs_s1_shakeoff_stop.png   stop codon LFC (BE) vs D5 shake-off LFC (S1), per stop site
   3. be_s1_efficiency_vs_lfc.png   guide LFC vs sensor editing efficiency
@@ -23,11 +24,11 @@ from be_screen_analysis.plotting import (
     style,
 )
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 BE_DIR = ROOT / "data" / "start_stop_ABE_screen_data" / "summaries"
 S1_DIR = ROOT / "data" / "shakeoff_data" / "table_s1"
-RES_DIR = ROOT / "results" / "be_s1"
-OUT_DIR = ROOT / "figures" / "be_s1"
+RES_DIR = ROOT / "results" / "old_analysis" / "hits" / "be_s1"
+OUT_DIR = ROOT / "figures" / "old_analysis" / "hits" / "be_s1"
 
 S1_XLABEL = "S1 HeLa D5 shake-off vs remaining, log2FC\n(> 0: knockout cells detach)"
 
@@ -83,7 +84,7 @@ def efficiency_vs_lfc() -> Path:
 
 def main() -> None:
     hits = pd.read_csv(RES_DIR / "be_x_s1_intersection.csv")
-    be_filtered = pd.read_csv(ROOT / "results" / "be_sites_filtered.csv")
+    be_filtered = pd.read_csv(ROOT / "results" / "old_analysis" / "hits" / "be_sites_filtered.csv")
     s1 = pd.read_csv(S1_DIR / "mageck.neg_HeLa.csv").set_index("id")["d5s_d5r.neg.lfc"]
     print(be_vs_screen_start(BE_DIR, s1, hits, S1_XLABEL, OUT_DIR / "be_vs_s1_shakeoff_start.png"))
     print(

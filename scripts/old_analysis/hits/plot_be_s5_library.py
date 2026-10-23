@@ -1,6 +1,7 @@
 """Figures for the be_s5_library (follow-up library candidates, no FDR filter).
 
-Run scripts/be_s5_library_analysis.py first; this reads results/be_s5_library/.
+Run scripts/old_analysis/hits/be_s5_library_analysis.py first; this reads
+results/old_analysis/hits/be_s5_library/.
   1. library_composition.png              guides per site type, split by essential subset / label
   2. guides_vs_s5_shakeoff_{start,stop}.png  guide LFC (BE) vs gene's 78h shake-off LFC (S5)
 """
@@ -13,9 +14,9 @@ import pandas as pd
 
 from be_screen_analysis.plotting import GRAY, INK, MUTED, style
 
-ROOT = Path(__file__).resolve().parents[2]
-LIBRARY = ROOT / "results" / "be_s5_library" / "be_s5_library_guides.csv"
-OUT_DIR = ROOT / "figures" / "be_s5_library"
+ROOT = Path(__file__).resolve().parents[3]
+LIBRARY = ROOT / "results" / "old_analysis" / "hits" / "be_s5_library" / "be_s5_library_guides.csv"
+OUT_DIR = ROOT / "figures" / "old_analysis" / "hits" / "be_s5_library"
 
 TYPES = ["Annotated", "Extended", "Truncated", "Mixed", "Stop"]
 # sequential blue steps for the essential subset (darker = stronger evidence), gray otherwise
