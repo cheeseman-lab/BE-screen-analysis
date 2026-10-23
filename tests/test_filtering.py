@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 
 from be_screen_analysis.filtering import (
@@ -194,3 +195,26 @@ def test_load_be_counts_categories_symbols_and_pooled_days(tmp_path):
     assert out["Hugo_Symbol"].isna().tolist() == [True, True, False]
     assert out.loc["g1", "Hugo_Symbol"] == "AAAS"
     assert out.loc["g1", "D12"] == 9  # three replicates of 3 summed
+
+
+def test_mageck_guide_lfc_median_ratio_and_blank_counts():
+    from be_screen_analysis.filtering import mageck_guide_lfc
+
+    # day1 is day0 sequenced twice as deep, except guide d which was lost (blank count)
+    counts = pd.DataFrame({"day0": [100, 200, 300, 400], "day1": [200, 400, 600, None]})
+    lfc = mageck_guide_lfc(counts, "day0", {"day1": "D1"})["day1"]
+    assert np.allclose(lfc[:3], 0)
+    assert np.isclose(lfc[3], np.log2(1 / (400 * 2**0.5 + 1)))  # day0 size factor 2**-0.5
+
+
+def test_depmap_dependency_counts_lines_above_half(tmp_path):
+    from be_screen_analysis.depmap import depmap_dependency
+
+    f = tmp_path / "dep.csv"
+    pd.DataFrame(
+        {"A (1)": [0.9, 0.6, 0.2, None], "B (2)": [0.1, 0.5, 0.4, 0.3]},
+        index=["ACH-1", "ACH-2", "ACH-3", "ACH-4"],
+    ).to_csv(f)
+    t = depmap_dependency(f)
+    assert t.loc["A", "depmap_fraction"] == "2/3" and t.loc["B", "depmap_n_dependent"] == 0
+    assert np.isclose(t.loc["A", "depmap_pct_dependent"], 200 / 3)

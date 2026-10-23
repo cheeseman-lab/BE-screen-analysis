@@ -1,4 +1,4 @@
-"""Gene-level LFCs for correlating the ABE screen with the S1/S5 CRISPR knockout screens."""
+"""Gene-level LFCs for correlating the ABE screen with CRISPR knockout screens (S1/S5, K562)."""
 
 from pathlib import Path
 
@@ -7,12 +7,9 @@ import pandas as pd
 from be_screen_analysis.filtering import (
     EFF_D0,
     EFF_D12,
-    S1_NT,
-    S1_REMAINING,
     S5_DAY0,
     S5_REMAINING,
     centred_guide_lfc,
-    nt_centred_guide_lfc,
 )
 from be_screen_analysis.mageck import MAGECK_DAYS
 
@@ -23,17 +20,20 @@ def _gene_median_by_day(guides: pd.DataFrame, label: str) -> pd.DataFrame:
     return guides.groupby("Hugo_Symbol")[list(cols)].median().rename(columns=cols)
 
 
-def abe_gene_lfc(mageck_dir: Path, screen: str, min_eff: float = 20) -> pd.DataFrame:
+def abe_gene_lfc(
+    mageck_dir: Path, screen: str, min_eff: float = 20, site_type: str = "Annotated"
+) -> pd.DataFrame:
     """Median MAGeCK guide LFC per gene over efficient guides, one column per day vs D0.
 
     Reads ``{screen}_guide_summary_mageck.csv`` (scripts/abe_mageck_analysis.py); columns
-    "ABE D4" ... "ABE D21". Start uses annotated-ATG guides only (start loss as a knockout proxy);
-    stop uses all guides.
+    "ABE D4" ... "ABE D21". Start uses the guides of ``site_type`` starts only (default annotated:
+    start loss as a knockout proxy; "Extended" / "Truncated" for the non-canonical starts); stop
+    uses all guides.
     """
     g = pd.read_csv(mageck_dir / f"{screen}_guide_summary_mageck.csv")
     g = g[(g[EFF_D0] >= min_eff) | (g[EFF_D12] >= min_eff)]
     if screen == "start":
-        g = g[g["start_site_type"] == "Annotated"]
+        g = g[g["start_site_type"] == site_type]
     return _gene_median_by_day(g, "ABE")
 
 
@@ -49,14 +49,6 @@ def inscreen_ko_gene_lfc(mageck_dir: Path) -> pd.DataFrame:
     return _gene_median_by_day(g, "In-screen KO")
 
 
-def s1_gene_dropout(counts: pd.DataFrame) -> pd.DataFrame:
-    """S1 HeLa remaining vs Day0 LFC per gene and timepoint (D2-D5), centred on NT guides."""
-    lfc = nt_centred_guide_lfc(counts)
-    is_nt = counts["gene"] == S1_NT
-    gene = lfc[~is_nt].groupby(counts.loc[~is_nt, "gene"]).median()
-    return gene.rename(columns={c: f"S1 {d}" for c, d in S1_REMAINING.items()})
-
-
 def s5_gene_dropout(counts: pd.DataFrame) -> pd.DataFrame:
     """S5 HeLa 78h remaining vs 0h LFC per gene, centred on intergenic (cutting) controls."""
     lfc = centred_guide_lfc(
@@ -66,3 +58,15 @@ def s5_gene_dropout(counts: pd.DataFrame) -> pd.DataFrame:
     gene = lfc[targeting].groupby(counts.loc[targeting, "target_symbol"]).median()
     gene = gene.drop("0", errors="ignore")  # constructs with no gene symbol
     return gene.rename(columns={c: f"S5 {d}" for c, d in S5_REMAINING.items()})
+
+
+K562_UNTREATED = "un_init.median.noctrl.neg.lfc"
+
+
+def k562_gene_lfc(median_lfc: pd.DataFrame) -> pd.Series:
+    """K562 anti-mitotic screen (JCB 2024) untreated endpoint vs initial gene median LFC.
+
+    ``median_lfc`` is data/anti-mt_K562/GW_median_lfc.csv; the untreated arm ends after 14
+    population doublings (~ABE D12).
+    """
+    return median_lfc.set_index("id")[K562_UNTREATED].rename("K562 untreated")

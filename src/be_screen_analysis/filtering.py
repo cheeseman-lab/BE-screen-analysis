@@ -189,6 +189,34 @@ def filter_be_sites(sites: pd.DataFrame, fdr: float = 0.05) -> pd.DataFrame:
     return out
 
 
+def start_hit_category(
+    summary: pd.DataFrame, lfc_thresh: float | None = 1, fdr_thresh: float | None = None
+) -> pd.Series:
+    """Tyler's start hit category per start codon summary row (notebooks/start_scatter.ipynb).
+
+    A start is significant if it passes every threshold given (None = ignored), as in the
+    notebook's ``is_significant``: |lfc| > ``lfc_thresh`` and neg or pos FDR < ``fdr_thresh`` (D12).
+    Returns "annot_only", "nc_only", "both" or "neither".
+    """
+
+    def significant(prefix: str) -> pd.Series:
+        sig = pd.Series(True, index=summary.index)
+        if lfc_thresh is not None:
+            sig &= summary[f"{prefix}_lfc"].abs() > lfc_thresh
+        if fdr_thresh is not None:
+            sig &= (summary[f"{prefix}_neg_fdr"] < fdr_thresh) | (
+                summary[f"{prefix}_pos_fdr"] < fdr_thresh
+            )
+        return sig
+
+    annot, nc = significant("annot"), significant("nc")
+    cat = pd.Series("neither", index=summary.index)
+    cat[annot & ~nc] = "annot_only"
+    cat[~annot & nc] = "nc_only"
+    cat[annot & nc] = "both"
+    return cat
+
+
 def centred_guide_lfc(
     counts: pd.DataFrame, ref: str, cols: dict[str, str], is_control: pd.Series
 ) -> pd.DataFrame:
@@ -210,14 +238,36 @@ def nt_centred_guide_lfc(
     return centred_guide_lfc(counts, ref, cols, counts[gene_col] == nt)
 
 
+def mageck_guide_lfc(counts: pd.DataFrame, ref: str, cols: dict[str, str]) -> pd.DataFrame:
+    """Guide log2 fold change of each ``cols`` sample vs ``ref`` as MAGeCK computes it, uncentred.
+
+    Each comparison is normalised on its own pair of samples with MAGeCK's median-ratio size
+    factors (guides with a zero count excluded from the factors); blank counts are zero (guide
+    lost); pseudocount 1. The mean over a gene's guides reproduces the published S1
+    ``d{N}r_d0`` gene LFC.
+    """
+    out = {}
+    for col in cols:
+        x = counts[[ref, col]].fillna(0)
+        geo_mean = np.exp(np.log(x.replace(0, np.nan)).mean(axis=1))
+        norm = x / x.div(geo_mean, axis=0).median()
+        out[col] = np.log2((norm[col] + 1) / (norm[ref] + 1))
+    return pd.DataFrame(out)
+
+
 def nt_null(
-    lfc: pd.DataFrame, is_nt: pd.Series, guides_per_gene: int = 4, n: int = 20000, seed: int = 0
+    lfc: pd.DataFrame,
+    is_nt: pd.Series,
+    guides_per_gene: int = 4,
+    n: int = 20000,
+    seed: int = 0,
+    agg: str = "median",
 ) -> pd.DataFrame:
-    """Null distribution of gene LFCs from medians of random non-targeting guide sets."""
+    """Null distribution of gene LFCs from the ``agg`` (median or mean) of random NT guide sets."""
     rng = np.random.default_rng(seed)
     nt_lfc = lfc[is_nt].to_numpy()
     idx = np.array([rng.choice(len(nt_lfc), guides_per_gene, replace=False) for _ in range(n)])
-    return pd.DataFrame(np.median(nt_lfc[idx], axis=1), columns=lfc.columns)
+    return pd.DataFrame(getattr(np, agg)(nt_lfc[idx], axis=1), columns=lfc.columns)
 
 
 def s1_dropout_labels(counts: pd.DataFrame, alpha: float = 0.05) -> pd.DataFrame:
@@ -251,16 +301,35 @@ def _add_pass_columns(table: pd.DataFrame, cmps: list[str], fdr: float) -> pd.Da
     return table
 
 
+def s1_mageck_table(
+    neg: pd.DataFrame, pos: pd.DataFrame, cmps: list[str] = S1_CMPS, ranks: bool = False
+) -> pd.DataFrame:
+    """Per-gene S1 MAGeCK ``{cmp}_lfc``, ``_neg_fdr``, ``_pos_fdr`` (+ ``_num``, ``_neg_rank``)."""
+    neg, pos = neg.set_index("id").drop(S1_NT), pos.set_index("id").drop(S1_NT)
+    table = pd.DataFrame(index=neg.index)
+    for c in cmps:
+        if ranks:
+            table[f"{c}_num"] = neg[f"{c}.num"]
+        table[f"{c}_lfc"] = neg[f"{c}.neg.lfc"]
+        if ranks:
+            table[f"{c}_neg_rank"] = neg[f"{c}.neg.rank"]
+        table[f"{c}_neg_fdr"] = neg[f"{c}.neg.fdr"]
+        table[f"{c}_pos_fdr"] = pos[f"{c}.pos.fdr"].reindex(neg.index)
+    return table
+
+
+def s1_published_gene_lfc(neg: pd.DataFrame) -> pd.DataFrame:
+    """Published S1 HeLa MAGeCK gene LFC, remaining vs Day0, columns D2-D5 (mageck.neg_HeLa)."""
+    neg = neg.set_index("id").drop(S1_NT)
+    cols = {f"{c}.neg.lfc": d for c, d in zip(S1_DROPOUT_CMPS, S1_REMAINING.values())}
+    return neg[list(cols)].rename(columns=cols).rename_axis("gene")
+
+
 def filter_s1_hela(
     neg: pd.DataFrame, pos: pd.DataFrame, counts: pd.DataFrame, fdr: float = 0.05
 ) -> pd.DataFrame:
     """Keep S1 HeLa genes with FDR < ``fdr`` (neg or pos) in any shake-off/dropout comparison."""
-    neg, pos = neg.set_index("id").drop(S1_NT), pos.set_index("id").drop(S1_NT)
-    table = pd.DataFrame(index=neg.index)
-    for c in S1_CMPS:
-        table[f"{c}_lfc"] = neg[f"{c}.neg.lfc"]
-        table[f"{c}_neg_fdr"] = neg[f"{c}.neg.fdr"]
-        table[f"{c}_pos_fdr"] = pos[f"{c}.pos.fdr"].reindex(neg.index)
+    table = s1_mageck_table(neg, pos)
     table = _add_pass_columns(table, S1_CMPS, fdr).join(s1_dropout_labels(counts))
     out = table[table["n_comparisons_passed"] > 0]
     out.insert(0, "cell_line", "HeLa")

@@ -12,6 +12,8 @@ def test_site_trajectories_median_efficient_guides_and_rate():
             "start_site_target_id": ["A-1"] * 3,
             "start_site_type": ["Extended;Truncated"] * 3,
             "Hugo_Symbol": ["A"] * 3,
+            "reference_codon": ["ATG"] * 3,
+            "mutated_codon": ["GTG", "ACG", "GTG"],
             EFF_D0: [50, 50, 5],  # third guide is inefficient and must be ignored
             EFF_D12: [50, 50, 5],
             **lfc,
@@ -19,6 +21,7 @@ def test_site_trajectories_median_efficient_guides_and_rate():
     )
     traj = site_trajectories(guides)
     assert traj.loc["A-1", "site_type"] == "Mixed" and traj.loc["A-1", "n_guides"] == 2
+    assert traj.loc["A-1", "edit_types"] == "ACG;GTG"
     assert traj.loc["A-1", "D0"] == 0 and abs(traj.loc["A-1", "D21"] + 3.15) < 1e-12
     # LFC = -0.15 * day exactly, so the slope through the origin is -0.15
     assert abs(dropout_rate(traj).loc["A-1"] + 0.15) < 1e-12
