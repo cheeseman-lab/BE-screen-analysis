@@ -10,7 +10,7 @@
 #SBATCH --error=/lab/barcheese01/ating/slurm_logs/%x_%j.err
 
 # Rerun MAGeCK on the raw ABE counts; submit from the repo root:
-#   sbatch scripts/abe_mageck.sbatch [codon|ko|all]   (default all)
+#   sbatch scripts/abe_mageck.sbatch [codon|ko|eff20|all]   (default all)
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate be-screen
 python scripts/abe_mageck_analysis.py "$@"
