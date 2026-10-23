@@ -1,8 +1,11 @@
 """Start codon ablation / downtuning: per-site dropout trajectories across the ABE timecourse.
 
 Writes results/start_trajectories/:
-  start_site_trajectories.csv  one row per start site: median efficient-guide MAGeCK LFC at
-                               D0 (=0), D4, D6, D12, D21, dropout rate, faster_than_{nt,aavs1}_null
+  start_site_trajectories.csv  one row per start site: reference codon, edit types of its efficient
+                               guides, median efficient-guide MAGeCK LFC at D0 (=0), D4, D6, D12,
+                               D21, dropout rate, faster_than_{nt,aavs1}_null
+  start_guide_trajectories.csv one row per efficient guide: site, site type, reference and edited
+                               codon, MAGeCK LFC at D0 (=0), D4, D6, D12, D21
   null_trajectories.csv        control pseudo-site trajectories (D4-D21) and rates; control = nt
                                or aavs1
 
@@ -22,14 +25,15 @@ from pathlib import Path
 
 import pandas as pd
 
-from be_screen_analysis.mageck import MAGECK_DAYS, read_mageck
+from be_screen_analysis.mageck import control_guide_lfc
 from be_screen_analysis.trajectories import (
     dropout_rate,
+    guide_trajectories,
     null_trajectories,
     site_trajectories,
 )
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 MAGECK_DIR = ROOT / "results" / "abe_mageck"
 OUT_DIR = ROOT / "results" / "start_trajectories"
 GUIDES_PER_SITE = 2
@@ -37,24 +41,15 @@ ALPHA = 0.05
 NULLS = {"nt": "NT_CTRL", "aavs1": "AAVS1_CTRL"}
 
 
-def control_guide_lfc(gene: str) -> pd.DataFrame:
-    """MAGeCK LFC of every control guide labelled ``gene`` in the start run, one column per day."""
-    counts = pd.read_csv(MAGECK_DIR / "start" / "counts.txt", sep="\t", index_col="sgRNA")
-    ids = counts.index[counts["Gene"] == gene]
-    cols = []
-    for day in MAGECK_DAYS:
-        g, _ = read_mageck(MAGECK_DIR / "start" / f"{day}_vs_D0", day)
-        cols.append(g.loc[ids, f"mageck_{day}_lfc"].rename(day))
-    return pd.concat(cols, axis=1)
-
-
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    traj = site_trajectories(pd.read_csv(MAGECK_DIR / "start_guide_summary_mageck.csv"))
+    guides = pd.read_csv(MAGECK_DIR / "start_guide_summary_mageck.csv")
+    guide_trajectories(guides).to_csv(OUT_DIR / "start_guide_trajectories.csv")
+    traj = site_trajectories(guides)
     traj["rate"] = dropout_rate(traj)
     nulls = []
     for name, gene in NULLS.items():
-        null = null_trajectories(control_guide_lfc(gene), GUIDES_PER_SITE)
+        null = null_trajectories(control_guide_lfc(MAGECK_DIR / "start", gene), GUIDES_PER_SITE)
         null["rate"] = dropout_rate(null)
         null.insert(0, "control", name)
         cutoff = null["rate"].quantile(ALPHA)
