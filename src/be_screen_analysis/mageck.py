@@ -51,18 +51,22 @@ def mageck_count_table(
     return pd.concat([gene.rename("Gene"), counts[reps]], axis=1).rename_axis("sgRNA")
 
 
-def run_mageck_test(count_file: Path, control_file: Path, day: str, prefix: Path) -> None:
-    """``mageck test`` of ``day`` vs D0 (3 reps each), normalised on the listed control guides."""
-    reps = lambda d: ",".join(f"{d}-rep{i}" for i in (1, 2, 3))  # noqa: E731
+def mageck_test(
+    count_file: Path, prefix: Path, treatment: list[str], control: list[str], control_file: Path
+) -> None:
+    """``mageck test`` of ``treatment`` vs ``control`` columns, normalised on the listed controls.
+
+    MAGeCK's report templates (.R, .report.Rmd, _summary.Rnw) are deleted; tables and log stay.
+    """
     cmd = [
         "mageck",
         "test",
         "-k",
         str(count_file),
         "-t",
-        reps(day),
+        ",".join(treatment),
         "-c",
-        reps("D0"),
+        ",".join(control),
         "--norm-method",
         "control",
         "--control-sgrna",
@@ -71,9 +75,43 @@ def run_mageck_test(count_file: Path, control_file: Path, day: str, prefix: Path
         str(prefix),
     ]
     subprocess.run(cmd, check=True)
-    # keep the tables and log; drop MAGeCK's report templates (.R, .report.Rmd, _summary.Rnw)
     for report in (f"{prefix}.R", f"{prefix}.report.Rmd", f"{prefix}_summary.Rnw"):
         Path(report).unlink(missing_ok=True)
+
+
+def run_mageck_test(count_file: Path, control_file: Path, day: str, prefix: Path) -> None:
+    """``mageck test`` of ``day`` vs D0 (3 reps each), normalised on the listed control guides."""
+    reps = lambda d: [f"{d}-rep{i}" for i in (1, 2, 3)]  # noqa: E731
+    mageck_test(count_file, prefix, reps(day), reps("D0"), control_file)
+
+
+def isoform_count_table(counts: pd.DataFrame, constructs: pd.DataFrame) -> pd.DataFrame:
+    """MAGeCK count table grouping constructs (S5 guide pairs, S1 guides) by the starts they KO.
+
+    ``counts`` and ``constructs`` (guide_classify s5_construct_isoforms.csv rows) share an index
+    of construct ids. A construct gets one row per start in its ``knocked_out`` (Gene =
+    ``{construct_gene}|{start_id}``, since readthrough genes share start ids with their parts;
+    sgRNA = ``{construct}|{start_id}``), so each start's LFC is the median over every construct
+    that cuts downstream of it. Targeting constructs knocking out no start stay once
+    as ``{gene}_no_start_ko`` (in the variance model, in no start); controls (category other than
+    GENE_TARGETING) stay once under their ``target_symbol``. Count columns are copied unchanged.
+    """
+    ko = constructs["knocked_out"].fillna("").str.split(";")
+    ko = ko.map(lambda s: [x for x in s if x])
+    targeting = constructs["category"] == "GENE_TARGETING"
+    gene = constructs["construct_gene"].fillna(constructs["target_symbol"])
+    rows = []
+    for cid in counts.index:
+        if not targeting[cid]:
+            rows.append((cid, cid, constructs.at[cid, "target_symbol"]))
+        elif ko[cid]:
+            rows.extend((cid, f"{cid}|{s}", f"{gene[cid]}|{s}") for s in ko[cid])
+        else:
+            rows.append((cid, cid, f"{gene[cid]}_no_start_ko"))
+    idx = pd.DataFrame(rows, columns=["construct", "sgRNA", "Gene"])
+    out = counts.loc[idx["construct"]].set_axis(pd.Index(idx["sgRNA"], name="sgRNA"))
+    out.insert(0, "Gene", idx["Gene"].to_numpy())
+    return out
 
 
 def read_mageck(prefix: Path, day: str) -> tuple[pd.DataFrame, pd.DataFrame]:

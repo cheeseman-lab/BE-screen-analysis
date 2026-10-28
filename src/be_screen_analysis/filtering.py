@@ -190,12 +190,16 @@ def filter_be_sites(sites: pd.DataFrame, fdr: float = 0.05) -> pd.DataFrame:
 
 
 def start_hit_category(
-    summary: pd.DataFrame, lfc_thresh: float | None = 1, fdr_thresh: float | None = None
+    summary: pd.DataFrame,
+    lfc_thresh: float | None = 1,
+    fdr_thresh: float | None = None,
+    other: str = "nc",
 ) -> pd.Series:
     """Tyler's start hit category per start codon summary row (notebooks/start_scatter.ipynb).
 
     A start is significant if it passes every threshold given (None = ignored), as in the
     notebook's ``is_significant``: |lfc| > ``lfc_thresh`` and neg or pos FDR < ``fdr_thresh`` (D12).
+    ``other`` is the column prefix of the start compared with ``annot`` (e.g. "alt").
     Returns "annot_only", "nc_only", "both" or "neither".
     """
 
@@ -209,7 +213,7 @@ def start_hit_category(
             )
         return sig
 
-    annot, nc = significant("annot"), significant("nc")
+    annot, nc = significant("annot"), significant(other)
     cat = pd.Series("neither", index=summary.index)
     cat[annot & ~nc] = "annot_only"
     cat[~annot & nc] = "nc_only"

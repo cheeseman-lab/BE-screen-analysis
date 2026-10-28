@@ -36,11 +36,10 @@ from pathlib import Path
 
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
-from matplotlib.transforms import Bbox
 
 from be_screen_analysis.filtering import start_hit_category
+from be_screen_analysis.plotting import label_all
 
 ROOT = Path(__file__).resolve().parents[2]
 SUMMARY = ROOT / "results" / "hits" / "start_codon_summary_eff20.csv"
@@ -59,20 +58,6 @@ NO_DEPMAP = "#CCCCCC"
 COUNT_LABELS = {"Annot only": "annot_only", "NC only": "nc_only", "Both": "both"}
 LINE_COLORS = {"annot": "#4477AA", "nc": "#CCBB44"}  # notebook threshold-line colours
 SITE_KEY = ["annot_start_site_target_id", "nc_start_site_target_id"]  # one summary row
-LABEL_STEP = 0.2  # vertical spacing of the label column (LFC units)
-LABEL_GAP = 0.6  # label columns start this far outside their points ...
-COLUMN_STEP, COLUMN_TRIES = 0.3, 20  # ... and step outward until clear of placed names
-# a name next to its point: (dx, dy) offset in points, alignment; tried in this order
-DIRECT = [(3, 0, "left", "center"), (-3, 0, "right", "center"), (0, 2.5, "center", "bottom"),
-          (0, -2.5, "center", "top")]  # fmt: skip
-POINT_RADIUS_PT = 2.5  # labels keep clear of other labelled points by this radius
-CROWD_PT = 12  # neighbours within this distance count towards a point's crowding
-# names that do not fit beside their point: leader-line offsets (points), nearest first
-NEAR_RING = [
-    (round(r * np.cos(a)), round(r * np.sin(a)))
-    for r in (10, 16, 24, 32, 42, 54, 68)
-    for a in np.deg2rad([0, 180, 90, 270, 45, 135, 225, 315])
-]
 
 
 def _guides(ax: plt.Axes, lim: list[float], title: str) -> None:
@@ -114,154 +99,6 @@ def _label_notebook(ax: plt.Axes, df: pd.DataFrame) -> None:
             placed.append(bb)
 
 
-def _leader(ax: plt.Axes, xy, xytext, textcoords: str = "data") -> None:
-    """A thin leader line from a name at ``xytext`` to its point ``xy``.
-
-    Drawn apart from the name, so the name's extent (used for overlap checks) excludes the line.
-    """
-    line = dict(arrowstyle="-", color="#777777", lw=0.4, shrinkA=1, shrinkB=2)
-    ax.annotate("", xy, xytext=xytext, textcoords=textcoords, zorder=4, arrowprops=line)
-
-
-def _crosses(p: tuple, q: tuple, r: tuple, s: tuple) -> bool:
-    """Whether segment p-q crosses segment r-s (proper intersection)."""
-
-    def side(a, b, c):
-        return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
-
-    return side(p, q, r) * side(p, q, s) < 0 and side(r, s, p) * side(r, s, q) < 0
-
-
-def _label_column(
-    ax: plt.Axes, rows: pd.DataFrame, side: str, x_text: float, avoid: list[Bbox]
-) -> None:
-    """Label ``rows`` in a column ``side`` of them with leader lines that do not cross.
-
-    Label slots are LABEL_STEP apart (closer if the column would not fit), the column centred on
-    the points' heights (kept inside the axes); slots start in y order, then any two labels whose
-    leader lines cross swap slots until none do. The column starts at ``x_text`` and steps outward
-    by COLUMN_STEP until none of its names overlaps a box in ``avoid`` (names already placed).
-    """
-    rows = rows.sort_values("nc_lfc", ascending=False)
-    lo, hi = ax.get_ylim()
-    step = min(LABEL_STEP, (hi - lo - 4 * LABEL_STEP) / len(rows))  # a long column still fits
-    slots = rows["nc_lfc"].to_list()
-    for k in range(1, len(slots)):  # push labels down until they are ``step`` apart
-        slots[k] = min(slots[k], slots[k - 1] - step)
-    shift = rows["nc_lfc"].mean() - sum(slots) / len(slots)  # recentre the column on the points
-    shift = min(shift, hi - 2 * LABEL_STEP - slots[0])  # top label inside the axes
-    shift = max(shift, lo + 2 * LABEL_STEP - slots[-1])  # bottom label inside the axes
-    slots = [y + shift for y in slots]
-    pts = list(zip(rows["annot_lfc"], rows["nc_lfc"]))
-    renderer = ax.figure.canvas.get_renderer()
-    outward = -1 if side == "left" else 1
-    for m in range(COLUMN_TRIES):
-        x = x_text + outward * m * COLUMN_STEP
-        ys = list(slots)
-        for _ in range(len(ys) ** 2):  # each swap shortens the total leader length, so this ends
-            swapped = False
-            for i in range(len(ys)):
-                for j in range(i + 1, len(ys)):
-                    if _crosses((x, ys[i]), pts[i], (x, ys[j]), pts[j]):
-                        ys[i], ys[j] = ys[j], ys[i]
-                        swapped = True
-            if not swapped:
-                break
-        texts = [
-            ax.annotate(
-                row["Hugo_Symbol"],
-                (row["annot_lfc"], row["nc_lfc"]),
-                xytext=(x, y),
-                fontsize=4.5,
-                va="center",
-                zorder=5,
-                ha="right" if side == "left" else "left",
-            )  # fmt: skip
-            for (_, row), y in zip(rows.iterrows(), ys)
-        ]
-        boxes = [t.get_window_extent(renderer) for t in texts]
-        if m == COLUMN_TRIES - 1 or not any(b.overlaps(a) for b in boxes for a in avoid):
-            avoid.extend(boxes)
-            for (_, row), y in zip(rows.iterrows(), ys):
-                _leader(ax, (row["annot_lfc"], row["nc_lfc"]), (x, y))
-            return
-        for t in texts:
-            t.remove()
-
-
-def _label_all(ax: plt.Axes, df: pd.DataFrame) -> None:
-    """Label every row: next to its point where it fits, else in a column with a leader line.
-
-    Points are tried least crowded first; a name goes right, left, above or below its point if it
-    then overlaps no placed name, no other labelled point and stays inside the axes; failing that,
-    a short leader line to a nearby free spot. Names that still fit nowhere go to label columns just
-    outside those points: those left of the leftovers' median x on the left, the rest on the
-    right, so leader lines cannot cross.
-    """
-    fig = ax.figure
-    fig.canvas.draw()
-    renderer = fig.canvas.get_renderer()
-    xy = df[["annot_lfc", "nc_lfc"]].to_numpy()
-    disp = ax.transData.transform(xy)
-    r = POINT_RADIUS_PT * fig.dpi / 72
-    point_boxes = [Bbox([[x - r, y - r], [x + r, y + r]]) for x, y in disp]
-    near = ((disp[:, None, :] - disp[None, :, :]) ** 2).sum(-1) < (CROWD_PT * fig.dpi / 72) ** 2
-    order = near.sum(axis=1).argsort(kind="stable")  # least crowded first
-    axes_box = ax.get_window_extent(renderer)
-    placed, leftover = [], []
-    for k in order:
-        row = df.iloc[k]
-        for dx, dy, ha, va in DIRECT:
-            t = ax.annotate(row["Hugo_Symbol"], xy[k], xytext=(dx, dy), textcoords="offset points",
-                            fontsize=4.5, ha=ha, va=va, zorder=5)  # fmt: skip
-            bb = t.get_window_extent(renderer)
-            clash = (
-                any(bb.overlaps(b) for b in placed)
-                or any(bb.overlaps(b) for i, b in enumerate(point_boxes) if i != k)
-                or not axes_box.contains(bb.x0, bb.y0)
-                or not axes_box.contains(bb.x1, bb.y1)
-            )
-            if not clash:
-                placed.append(bb)
-                break
-            t.remove()
-        else:
-            leftover.append(k)
-    # second pass: a short leader line, the name at growing distance in 8 directions
-    still = []
-    for k in leftover:
-        row = df.iloc[k]
-        for dx, dy in NEAR_RING:
-            t = ax.annotate(row["Hugo_Symbol"], xy[k], xytext=(dx, dy), textcoords="offset points",
-                            fontsize=4.5, va="center", zorder=5,
-                            ha="left" if dx > 0 else "right" if dx < 0 else "center")  # fmt: skip
-            bb = t.get_window_extent(renderer)
-            clash = (
-                any(bb.overlaps(b) for b in placed)
-                or any(bb.overlaps(b) for i, b in enumerate(point_boxes) if i != k)
-                or not axes_box.contains(bb.x0, bb.y0)
-                or not axes_box.contains(bb.x1, bb.y1)
-            )
-            if not clash:
-                placed.append(bb)
-                _leader(ax, xy[k], (dx, dy), "offset points")
-                break
-            t.remove()
-        else:
-            still.append(k)
-    rest = df.iloc[sorted(still)]
-    if rest.empty:
-        return
-    left = rest["annot_lfc"] <= rest["annot_lfc"].median()
-    edges = {
-        "left": rest["annot_lfc"].min() - LABEL_GAP,
-        "right": rest["annot_lfc"].max() + LABEL_GAP,
-    }
-    for side, rows in (("left", rest[left]), ("right", rest[~left])):
-        if len(rows):
-            _label_column(ax, rows, side, edges[side], placed)
-
-
 def plot_scatter(
     df: pd.DataFrame,
     ax: plt.Axes,
@@ -284,7 +121,7 @@ def plot_scatter(
                          vmax=100, s=12, alpha=0.85, linewidths=0, zorder=3,
                          label=f"{highlight_label} (n = {len(hi)})")  # fmt: skip
         _guides(ax, lim, title)
-        _label_all(ax, hi)
+        label_all(ax, hi, "annot_lfc", "nc_lfc", "Hugo_Symbol")
         return pts
 
     missing = df[DEPMAP].isna()
