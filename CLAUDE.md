@@ -29,6 +29,37 @@ Analysis of Tyler's ABE base editing screen of start and stop codons. Code lives
   `ABE_validation/fitness_subset/` (gene LFC distributions with control-null cutoffs, 240-gene
   S1 / S5 / ABE start fitness subsets and their overlap), `ABE_validation/correlation_shakeoff/`
   (ABE start and in-screen KO vs S1/S5 at D4 and D6, control nulls, Tyler's start hit categories)
+- `guide_classification/` (scripts + results only;
+  `sbatch scripts/guide_classification/classify.sbatch`, ~35 min): aligns every S1 (HeLa
+  essential library), S5 (HeLa genome-wide dual-guide constructs) and K562 spacer to hg38
+  (bowtie2, exact matches with an NGG PAM), assigns each cut to a GENCODE v49 gene and labels the
+  start isoforms it knocks out / retains (`guide_classify.py`) ->
+  `results/guide_classification/{s1,s5,k562}_guide_isoforms.csv`, `s5_construct_isoforms.csv`
+  (both cuts combined), `start_scaffold.csv`, `cut_region_summary.csv`. Start scaffold per gene:
+  annotated = v49 main-transcript CDS start; truncated = swissisoform combined MAF (HeLa / RPE1 /
+  HFF / iPSC); internal = Ly Ribo-TISH `Internal*` calls (HeLa, RPE1) from
+  `Alldata_uniqueTIS_filtered_dictionary.txt` (pre-filtered upstream: Fisher q < 0.05, >= 5 TIS
+  reads; HeLa also >= 10 summed reads), ORF laid on its v49 transcript (34 of 328 are in frame with
+  the main CDS). No K562-called starts.
+- `isoform_aware_shakeoff/` (`sbatch scripts/isoform_aware_shakeoff/isoform_mageck.sbatch
+  s5|s1|k562`; run guide_classification first): MAGeCK on each screen's abundance comparison (S5
+  `78h_remaining` vs `0h`, S1 `day5_remaining` vs `Day0`, blank counts = 0; K562 untreated vs
+  initial), a gene run and an isoform run where each start's LFC is the median over the guides
+  (S5: constructs) that knock it out (`mageck.isoform_count_table`, groups keyed
+  `{gene}|{start_id}` since readthrough genes share start ids; tables built by `isoform.py`).
+  Normalised on non-targeting controls (S5, S1) or intergenic guides (K562) ->
+  `results/isoform_aware_shakeoff/{lib}/gene/`, `isoform/`, `gene_isoform_lfc.csv` (one row per
+  gene x alternative start: annot_ / alt_ lfc, FDRs, num_constructs, same_as_annotated,
+  delta_lfc). `plot_annot_vs_truncated.py {lib} [hits|depmap]`: annotated vs truncated / internal
+  start LFC (starts with their own guide set only) coloured by Tyler's hit categories (FDR < 0.1)
+  or DepMap % dependent ->
+  `figures/isoform_aware_shakeoff/annot_vs_truncated_lfc_{lib}_{hits,depmap}.png`;
+  `plot_shared_hits.py`: starts that are a hit in all three screens and in each pair
+  (`shared_hits_{s1_s5_k562,pairwise}.png`, `results/isoform_aware_shakeoff/shared_hits*.csv`).
+  Caveat: alternative starts usually rest on 1-4 guides (S5 mostly 1 construct), so random
+  zero-read dropouts (~2% of K562 guides) drive most large isoform differences, and the
+  differences do not replicate between screens (S1 vs K562 delta r = 0.07); S1 / K562 hit overlap
+  reflects shared essential genes.
 
 The current external comparison is the anti-mitotic K562 CRISPR KO screen (JCB 2024, Table S1;
 `data/anti-mt_K562/`: `GW_counts.csv`, `GW_median_lfc.csv`, `Table1_legend_GW.csv`). Use only the
@@ -38,41 +69,9 @@ CPM median, pseudocount 0.5). Cutting alone depletes K562 guides by ~0.6 log2 vs
 (intergenic guides -0.61, targeting -0.70), so MAGeCK runs on these counts normalise on the 499
 `INTERGENIC` guides; a non-targeting baseline calls almost every gene depleted.
 
-### Isoform-aware KO analysis (two top-level folders, beside `scripts/`)
-Each folder is self-contained: its own scripts, sbatch, git-ignored `results/` and (for the
-analysis) `figures/`. Run both through Slurm from the repo root.
-- `guide_classify/` (`sbatch guide_classify/classify.sbatch`, ~35 min): aligns every S1 (HeLa
-  essential library), S5 (HeLa genome-wide dual-guide constructs) and K562 spacer to hg38
-  (bowtie2, exact matches with an NGG PAM), assigns each cut to a GENCODE v49 gene and labels the
-  start isoforms it knocks out / retains -> `results/{s1,s5,k562}_guide_isoforms.csv`,
-  `s5_construct_isoforms.csv` (both cuts combined), `start_scaffold.csv`, `cut_region_summary.csv`.
-  Start scaffold per gene: annotated = v49 main-transcript CDS start; truncated = swissisoform
-  combined MAF (HeLa / RPE1 / HFF / iPSC); internal = Ly Ribo-TISH `Internal*` calls (HeLa,
-  RPE1) from `Alldata_uniqueTIS_filtered_dictionary.txt` (pre-filtered upstream: Fisher q < 0.05,
-  >= 5 TIS reads; HeLa also >= 10 summed reads), ORF laid on its v49 transcript (34 of 328 are in
-  frame with the main CDS). No K562-called starts. `classify.py` is importable by tests
-  (`pythonpath = ["guide_classify"]` in pyproject).
-- `isoform_aware_shakeoff_analysis/` (`sbatch isoform_aware_shakeoff_analysis/isoform_mageck.sbatch
-  s5|s1|k562`): MAGeCK on each screen's abundance comparison (S5 `78h_remaining` vs `0h`, S1
-  `day5_remaining` vs `Day0`, blank counts = 0; K562 untreated vs initial), a gene run and an
-  isoform run where each start's LFC is the median over the guides (S5: constructs) that knock it
-  out (`mageck.isoform_count_table`, groups keyed `{gene}|{start_id}` since readthrough genes
-  share start ids). Normalised on non-targeting controls (S5, S1) or intergenic guides (K562).
-  -> `results/{lib}/gene/`, `isoform/`, `gene_isoform_lfc.csv` (one row per gene x alternative
-  start: annot_ / alt_ lfc, FDRs, num_constructs, same_as_annotated, delta_lfc).
-  `plot_annot_vs_truncated.py {lib} [hits|depmap]` draws annotated vs truncated / internal start
-  LFC (starts with their own guide set only) coloured by Tyler's hit categories (FDR < 0.1) or
-  DepMap % dependent -> `figures/annot_vs_truncated_lfc_{lib}_{hits,depmap}.png`;
-  `plot_shared_hits.py` highlights starts that are a hit in all three screens and in each pair
-  (`figures/shared_hits_{s1_s5_k562,pairwise}.png`, `results/shared_hits*.csv`).
-  Caveat: alternative starts usually rest on 1-4 guides (S5 mostly 1 construct), so random
-  zero-read dropouts (~2% of K562 guides) drive most large isoform differences, and the
-  differences do not replicate between screens (S1 vs K562 delta r = 0.07); S1 / K562 hit overlap
-  reflects shared essential genes.
-
 Each script writes its figures to the matching `figures/` folder. `scripts/abe_mageck_analysis.py`
-is shared upstream of all of them. `scripts/annotate_codon_summaries.py` writes copies of the
-start/stop codon summaries with DepMap, protein-sequence and (start) initiation-efficiency columns
+is shared upstream of all the ABE analyses. `scripts/annotate_codon_summaries.py` writes copies of
+the start/stop codon summaries with DepMap, protein-sequence and (start) initiation-efficiency columns
 to `results/annot_summaries/` (references in `data/reference/`: GENCODE v49 genome + GTF, DepMap
 CRISPRGeneDependency.csv, and CRISPRInferredCommonEssentials.csv (1,523 genes) from DepMap 24Q4
 Public via Figshare (ndownloader.figshare.com/files/51064916), an older release than the

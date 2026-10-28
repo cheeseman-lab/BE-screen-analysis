@@ -41,7 +41,6 @@ pydocstyle = { convention = "google" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["guide_classify"]
 markers = [
     "gpu: requires GPU (structure prediction, embeddings)",
     "network: requires network access (API calls, downloads)",

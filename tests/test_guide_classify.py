@@ -1,5 +1,6 @@
 import pandas as pd
-from classify import (
+
+from be_screen_analysis.guide_classify import (
     combine_cuts,
     cut_position,
     cut_region,
@@ -8,7 +9,6 @@ from classify import (
     main_transcript,
     tx_genomic,
 )
-
 from be_screen_analysis.sequence import Genome, Transcript, revcomp
 
 

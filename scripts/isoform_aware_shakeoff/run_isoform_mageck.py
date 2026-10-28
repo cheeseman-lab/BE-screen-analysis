@@ -1,12 +1,12 @@
 """Isoform-aware MAGeCK on the shake-off library counts: abundance, last remaining vs time 0.
 
   s5  genome-wide dual-guide library, 78h_remaining vs 0h; a construct is target +
-      target_version with both cuts made (guide_classify results/s5_construct_isoforms.csv)
+      target_version with both cuts made (results/guide_classification/s5_construct_isoforms.csv)
   s1  HeLa essential library, day5_remaining vs Day0 (its last time point); a construct is one
-      guide (guide_classify results/s1_guide_isoforms.csv)
+      guide (results/guide_classification/s1_guide_isoforms.csv)
   k562  K562 anti-mitotic genome-wide screen (data/anti-mt_K562), untreated endpoint
       un.neg.tggtca vs initial k562.initial.attggc; a construct is one guide
-      (guide_classify results/k562_guide_isoforms.csv)
+      (results/guide_classification/k562_guide_isoforms.csv)
 
 Every construct carries the starts it knocks out. Two MAGeCK runs per library, both normalised
 on control constructs (constructs are duplicated in the isoform run, so median normalisation
@@ -15,19 +15,13 @@ would shift): non-targeting for S5 and S1, intergenic for K562 (see K562_NORM):
   isoform  one row per (construct, knocked-out start), Gene = {gene}|{start_id}: a start's LFC is
            the median over every construct cutting downstream of it (mageck.isoform_count_table)
 
-Outputs in isoform_aware_shakeoff_analysis/results/{library}/:
+Outputs in results/isoform_aware_shakeoff/{library}/:
   gene/, isoform/        counts.txt, control_sgrnas.txt and MAGeCK tables + log
-  gene_isoform_lfc.csv   one row per (gene, non-annotated start), genes with only an annotated
-                         start one row with blank alt_ columns: gene_lfc / gene_neg_fdr (gene
-                         run); annot_ and alt_ start_id, num_constructs (constructs knocking the
-                         start out), lfc, neg_fdr, pos_fdr (isoform run; NaN when no construct
-                         knocks it out); alt_kind, alt_codon, alt_provenance, alt_in_frame_main;
-                         alt_ko_constructs; same_as_annotated (alt knocked out by exactly the
-                         annotated start's constructs, so its LFC is identical); delta_lfc
-                         (alt_lfc - annot_lfc)
+  gene_isoform_lfc.csv   isoform.isoform_lfc_table: one row per (gene, non-annotated start),
+                         annotated and alternative start stats side by side
 
-Run guide_classify first; submit from the repo root with
-  sbatch isoform_aware_shakeoff_analysis/isoform_mageck.sbatch s5|s1|k562
+Run scripts/guide_classification first; submit from the repo root with
+  sbatch scripts/isoform_aware_shakeoff/isoform_mageck.sbatch s5|s1|k562
 """
 
 import sys
@@ -43,9 +37,10 @@ from be_screen_analysis.filtering import (
     S5_NT,
     S5_REMAINING,
 )
+from be_screen_analysis.isoform import gene_count_table, isoform_lfc_table, single_guide_labels
 from be_screen_analysis.mageck import isoform_count_table, mageck_test, read_mageck
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SHAKEOFF_DIR = ROOT / "data" / "shakeoff_data"
 K562_FILE = ROOT / "data" / "anti-mt_K562" / "GW_counts.csv"
 # K562 is normalised on its intergenic (cutting, no gene) guides: cutting alone depletes K562
@@ -53,8 +48,8 @@ K562_FILE = ROOT / "data" / "anti-mt_K562" / "GW_counts.csv"
 K562_NORM = "INTERGENIC"
 K562_NT = "CONTROL"  # non-targeting; stays as its own control group
 K562_CONTROLS = {K562_NORM, K562_NT, "CTRL", "LIBCTRL0"}  # guides with no target gene
-CLASSIFY_DIR = ROOT / "guide_classify" / "results"
-OUT_DIR = ROOT / "isoform_aware_shakeoff_analysis" / "results"
+CLASSIFY_DIR = ROOT / "results" / "guide_classification"
+OUT_DIR = ROOT / "results" / "isoform_aware_shakeoff"
 # per library: time 0 and the last remaining time point
 SAMPLES = {
     "s5": (S5_DAY0, list(S5_REMAINING)[-1]),  # 0h, 78h_remaining
@@ -80,25 +75,6 @@ def load_s5() -> tuple[pd.DataFrame, pd.DataFrame]:
     labels = labels.set_index(cid(labels)).loc[counts.index]
     labels["control"] = labels["target"] == S5_NT
     return counts, labels
-
-
-def single_guide_labels(guides: pd.DataFrame, control: pd.Series, nt: pd.Series) -> pd.DataFrame:
-    """Guide isoform labels in the S5 construct columns: each guide is its own construct.
-
-    ``control`` marks guides with no target gene (category = their library gene label), ``nt``
-    the non-targeting ones (category NONTARGETING_CONTROL, the normalisation set); every other
-    guide is GENE_TARGETING. target_symbol = library gene, construct_gene = its GENCODE gene.
-    """
-    category = guides["gene"].where(control, "GENE_TARGETING").mask(nt, "NONTARGETING_CONTROL")
-    return pd.DataFrame(
-        {
-            "category": category,
-            "target_symbol": guides["gene"],
-            "construct_gene": guides["gtf_gene"],
-            "knocked_out": guides["knocked_out"],
-            "control": nt,
-        }
-    )
 
 
 def load_s1() -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -140,54 +116,15 @@ def run(lib: str, name: str, table: pd.DataFrame, labels: pd.DataFrame) -> pd.Da
     return per_group[list(STAT_COLS)].rename(columns=STAT_COLS)
 
 
-def gene_table(counts: pd.DataFrame, labels: pd.DataFrame) -> pd.DataFrame:
-    """One row per construct, Gene = construct_gene (controls: their target_symbol)."""
-    targeting = labels["category"] == "GENE_TARGETING"
-    gene = labels["construct_gene"].where(targeting).fillna(labels["target_symbol"])
-    return pd.concat([gene.rename("Gene"), counts], axis=1).rename_axis("sgRNA")
-
-
-def isoform_lfc(labels: pd.DataFrame, gene_stats: pd.DataFrame, iso: pd.DataFrame) -> pd.DataFrame:
-    """The gene_isoform_lfc.csv table (see module docstring)."""
-    scaffold = pd.read_csv(CLASSIFY_DIR / "start_scaffold.csv")
-    t = labels[(labels["category"] == "GENE_TARGETING") & labels["construct_gene"].notna()]
-    ko: dict[tuple[str, str], set[str]] = {}
-    for cid, g, k in zip(t.index, t["construct_gene"], t["knocked_out"].fillna("")):
-        for s in filter(None, k.split(";")):
-            ko.setdefault((g, s), set()).add(cid)
-    starts = scaffold[scaffold["gene"].isin(set(t["construct_gene"]))].copy()
-    sets = [ko.get((g, s), set()) for g, s in zip(starts["gene"], starts["start_id"])]
-    starts["num_constructs"] = [len(c) for c in sets]
-    starts["ko_constructs"] = [";".join(sorted(c)) for c in sets]
-    starts["ko_set"] = sets
-    stats = iso.reindex(starts["gene"] + "|" + starts["start_id"])
-    starts[list(stats)] = stats.to_numpy()
-
-    keep = ["gene", "start_id", "num_constructs", "lfc", "neg_fdr", "pos_fdr", "ko_set"]
-    annot = starts.loc[starts["kind"] == "Annotated", keep].add_prefix("annot_")
-    alt_cols = ["kind", "codon", "provenance", "in_frame_main", "ko_constructs"]
-    alt = starts.loc[starts["kind"] != "Annotated", keep + alt_cols].add_prefix("alt_")
-    out = annot.merge(alt, left_on="annot_gene", right_on="alt_gene", how="left")
-    out = out.rename(columns={"annot_gene": "gene"}).drop(columns="alt_gene")
-    out.insert(1, "gene_lfc", out["gene"].map(gene_stats["lfc"]))
-    out.insert(2, "gene_neg_fdr", out["gene"].map(gene_stats["neg_fdr"]))
-    out["same_as_annotated"] = [
-        (a == b) if isinstance(b, set) else pd.NA
-        for a, b in zip(out["annot_ko_set"], out["alt_ko_set"])
-    ]
-    out["delta_lfc"] = out["alt_lfc"] - out["annot_lfc"]
-    out = out.drop(columns=["annot_ko_set", "alt_ko_set"])
-    return out.astype({"alt_num_constructs": "Int64"})
-
-
 def main(lib: str) -> None:  # noqa: D103
     loaders = {"s5": load_s5, "s1": load_s1, "k562": load_k562}
     if lib not in loaders:
         raise SystemExit("usage: run_isoform_mageck.py s5|s1|k562")
     counts, labels = loaders[lib]()
-    gene_stats = run(lib, "gene", gene_table(counts, labels), labels)
+    gene_stats = run(lib, "gene", gene_count_table(counts, labels), labels)
     iso = run(lib, "isoform", isoform_count_table(counts, labels), labels)
-    out = isoform_lfc(labels, gene_stats, iso)
+    scaffold = pd.read_csv(CLASSIFY_DIR / "start_scaffold.csv")
+    out = isoform_lfc_table(labels, scaffold, gene_stats, iso)
     path = OUT_DIR / lib / "gene_isoform_lfc.csv"
     out.to_csv(path, index=False)
     print(f"{len(out)} rows, {out['gene'].nunique()} genes -> {path}")

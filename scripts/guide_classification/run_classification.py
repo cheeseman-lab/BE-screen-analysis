@@ -1,14 +1,13 @@
 """Start-codon isoforms knocked out / retained by each S1 / S5 shake-off and K562 KO guide.
 
-Two steps (see classify.sbatch):
-  python guide_classify/run_classification.py fasta     -> results/guides.fa (unique spacers)
+Two steps (see classify.sbatch; run from the repo root):
+  python scripts/guide_classification/run_classification.py fasta     -> guides.fa (spacers)
   bowtie2 exact end-to-end alignment, every hit, to the
-  full UCSC hg38 (alt haplotypes + unplaced contigs)    -> results/guides.sam
-  python guide_classify/run_classification.py classify  -> the CSVs below
-  (python guide_classify/run_classification.py summary     -> cut_region_summary.csv alone;
-   python guide_classify/run_classification.py constructs  -> s5_construct_isoforms.csv alone)
+  full UCSC hg38 (alt haplotypes + unplaced contigs)                  -> guides.sam
+  python scripts/guide_classification/run_classification.py classify  -> the CSVs below
+  (step summary -> cut_region_summary.csv alone; step constructs -> s5_construct_isoforms.csv)
 
-Outputs in guide_classify/results/:
+Outputs in results/guide_classification/:
   start_scaffold.csv   one row per (gene, start) for every gene a guide was assigned to:
                        start_id, kind (Annotated / Truncated / Internal), chrom, strand, codon
                        lo/hi, codon, first_base (5' base), orf_end (internal ORFs: last base of
@@ -33,7 +32,7 @@ Guide columns: gtf_gene (GENCODE v49 gene the cut was assigned to: the library s
 v49 gene name and a hit lies in it, else the gene overlapping the hit, protein-coding first;
 primary-chromosome hits are tried before alt / unplaced contigs), chrom, guide_strand, cut_pos
 (break between cut_pos and cut_pos + 1), n_perfect_hits (genomic exact matches with an NGG PAM,
-alt / unplaced contigs included), cut_region (classify.cut_region, or for guides with no gene:
+alt / unplaced contigs included), cut_region (guide_classify.cut_region, or for guides with no gene:
 no_alignment (no exact match), no_pam (exact matches, none with an NGG PAM), alt_contig_only
 (PAM hits only on alt / unplaced contigs, which v49 does not annotate), no_hit_in_gene (PAM hits
 on primary chromosomes, none in a gene usable for the symbol)), in_maf (gene has starts in the
@@ -42,11 +41,11 @@ and retained (";"-separated start_ids, ordered 5' to 3'). Starts are knocked out
 the CDS or at a coding splice site; any other region leaves every start retained. Control guides
 keep blank isoform columns.
 
-Starts: annotated = GENCODE v49 main transcript CDS start (classify.main_transcript); truncated
-= swissisoform combined MAF Truncated rows plus its other-transcript Annotated rows in frame and
-downstream of the main start; internal = Ribo-TISH Internal* rows of the Ly HeLa and RPE1 TIS
-dictionaries, stop from the ORF sequence laid on its v49 transcript. Run through Slurm (the GTF
-is ~3 GB).
+Starts: annotated = GENCODE v49 main transcript CDS start (guide_classify.main_transcript);
+truncated = swissisoform combined MAF Truncated rows plus its other-transcript Annotated rows in
+frame and downstream of the main start; internal = Ribo-TISH Internal* rows of the Ly HeLa and
+RPE1 TIS dictionaries, stop from the ORF sequence laid on its v49 transcript. Run through Slurm
+(the GTF is ~3 GB).
 """
 
 import sys
@@ -54,7 +53,8 @@ from collections import Counter
 from pathlib import Path
 
 import pandas as pd
-from classify import (
+
+from be_screen_analysis.guide_classify import (
     CODING_REGIONS,
     combine_cuts,
     cut_position,
@@ -68,10 +68,9 @@ from classify import (
     main_transcript,
     parse_sam,
 )
-
 from be_screen_analysis.sequence import Genome, load_transcripts
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 REF_DIR = ROOT / "data" / "reference"
 GENOME = REF_DIR / "Gencode_v49_GRCh38.primary_assembly.genome.fa"
 GTF = REF_DIR / "gencode.v49.primary_assembly.annotation.gtf"
@@ -88,7 +87,7 @@ LY_DICTS = {
     "hela": RIBO_DIR / "ly_raw_hela" / "Alldata_uniqueTIS_filtered_dictionary.txt",
     "rpe1": RIBO_DIR / "ly_raw_rpe1" / "Alldata_uniqueTIS_filtered_dictionary.txt",
 }
-OUT_DIR = ROOT / "guide_classify" / "results"
+OUT_DIR = ROOT / "results" / "guide_classification"
 FASTA = OUT_DIR / "guides.fa"
 SAM = OUT_DIR / "guides.sam"
 S1_ID_COLS = ["sgrna", "gene"]

@@ -1,6 +1,6 @@
 """Annotated vs truncated / internal start LFC from the isoform-aware abundance MAGeCK.
 
-figures/annot_vs_truncated_lfc_{library}_hits.png  (library s5, s1 or k562; colour mode "hits")
+figures/isoform_aware_shakeoff/annot_vs_truncated_lfc_{library}_hits.png  (s5, s1 or k562)
     One point per (gene, non-annotated start) whose knocking-out construct set differs from the
     annotated start's (the others have the annotated start's LFC by construction and are left
     off); x = annot_lfc, y = alt_lfc (S5 78h_remaining vs 0h, S1 day5_remaining vs Day0, K562
@@ -11,13 +11,14 @@ figures/annot_vs_truncated_lfc_{library}_hits.png  (library s5, s1 or k562; colo
     only, "both" hits with |delta_lfc| > 0.25 (Tyler's hit categories, neg or pos FDR < 0.1) and
     the largest |delta_lfc|; at most 30 per panel, keeping the largest |delta_lfc|; the panel's
     extreme points (lowest / highest annot_lfc and alt_lfc) are always labelled.
-figures/annot_vs_truncated_lfc_{library}_depmap.png  (colour mode "depmap")
+figures/isoform_aware_shakeoff/annot_vs_truncated_lfc_{library}_depmap.png  (mode "depmap")
     The same panels with points coloured by the gene's % of DepMap lines dependent
     (depmap.depmap_dependency on data/reference/CRISPRGeneDependency.csv; viridis 0-100, most
     dependent on top, genes without DepMap data in light gray).
 
-Run run_isoform_mageck.py {library} first:
-  python plot_annot_vs_truncated.py s5|s1|k562 [hits|depmap]   (default hits)
+Run run_isoform_mageck.py {library} first; from the repo root:
+  python scripts/isoform_aware_shakeoff/plot_annot_vs_truncated.py s5|s1|k562 [hits|depmap]
+  (default hits)
 """
 
 import sys
@@ -28,33 +29,21 @@ import numpy as np
 import pandas as pd
 
 from be_screen_analysis.depmap import depmap_dependency
-from be_screen_analysis.filtering import start_hit_category
+from be_screen_analysis.isoform import COMPARISON_LABELS, HIT_FDR, distinct_starts
+from be_screen_analysis.plotting import HIT_CATEGORIES as CATS
 from be_screen_analysis.plotting import label_all, scatter_fit
 
-ROOT = Path(__file__).resolve().parents[1]
-RESULTS = ROOT / "isoform_aware_shakeoff_analysis" / "results"
-FIG_DIR = ROOT / "isoform_aware_shakeoff_analysis" / "figures"
-COMPARISONS = {
-    "s5": "78h remaining vs 0h",
-    "s1": "day 5 remaining vs day 0",
-    "k562": "untreated endpoint vs initial",
-}
+ROOT = Path(__file__).resolve().parents[2]
+RESULTS = ROOT / "results" / "isoform_aware_shakeoff"
+FIG_DIR = ROOT / "figures" / "isoform_aware_shakeoff"
 MODES = ("hits", "depmap")
 DEPMAP_FILE = ROOT / "data" / "reference" / "CRISPRGeneDependency.csv"
 DEPMAP = "depmap_pct_dependent"
-FDR_THRESH = 0.1
 N_DELTA_LABELS = 8  # per panel, besides the hits
 MAX_LABELS = 30  # per panel: past this, only the largest |delta_lfc| are labelled
 BOTH_DELTA = 0.25  # label a "both" hit only if its starts differ by more than this
 KINDS = ["Truncated", "Internal"]
 CMAP = "viridis"
-# start_codon_analysis hit-category colours (notebooks/start_scatter.ipynb)
-CATS = {
-    "neither": ("Neither", "#CCCCCC"),
-    "annot_only": ("Annotated only", "#4477AA"),
-    "nc_only": ("Alt start only", "#CCBB44"),
-    "both": ("Both", "#EE6677"),
-}
 
 
 def panel(
@@ -65,7 +54,7 @@ def panel(
     mode: str,
 ) -> plt.cm.ScalarMappable:
     """One kind's scatter (coloured by ``mode``), fit and gene labels; returns the last points."""
-    cat = start_hit_category(df, None, FDR_THRESH, other="alt")
+    cat = df["category"]
     if mode == "hits":
         names = cat.map(lambda c: CATS[c][0])
         colors = {n: c for n, c in CATS.values() if (names == n).any()}
@@ -108,11 +97,9 @@ def panel(
 
 
 def main(lib: str, mode: str = "hits") -> None:  # noqa: D103
-    if lib not in COMPARISONS or mode not in MODES:
+    if lib not in COMPARISON_LABELS or mode not in MODES:
         raise SystemExit("usage: plot_annot_vs_truncated.py s5|s1|k562 [hits|depmap]")
-    t = pd.read_csv(RESULTS / lib / "gene_isoform_lfc.csv")
-    t = t.dropna(subset=["annot_lfc", "alt_lfc"])
-    t = t[~t["same_as_annotated"].astype(bool)]
+    t = distinct_starts(pd.read_csv(RESULTS / lib / "gene_isoform_lfc.csv"))
     if mode == "depmap":
         t = t.join(depmap_dependency(DEPMAP_FILE)[DEPMAP], on="gene")
     fig, axes = plt.subplots(1, len(KINDS), figsize=(6.5 * len(KINDS), 6.4))
@@ -121,10 +108,10 @@ def main(lib: str, mode: str = "hits") -> None:  # noqa: D103
     fig.subplots_adjust(left=0.06, right=right, bottom=0.09, top=0.9, wspace=0.18)
     title = f"{lib.upper()} isoform-aware abundance"
     if mode == "hits":
-        title += f" (hits: neg or pos FDR < {FDR_THRESH})"
+        title += f" (hits: neg or pos FDR < {HIT_FDR})"
     fig.suptitle(title, x=0.01, ha="left", fontsize=10)
     for ax, kind in zip(np.atleast_1d(axes), KINDS):
-        points = panel(ax, t[t["alt_kind"] == kind], kind, COMPARISONS[lib], mode)
+        points = panel(ax, t[t["alt_kind"] == kind], kind, COMPARISON_LABELS[lib], mode)
     if mode == "depmap":
         cax = fig.add_axes([0.925, 0.15, 0.012, 0.7])  # colour bar, outside the panels
         bar = fig.colorbar(points, cax=cax)

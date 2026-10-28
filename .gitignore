@@ -15,5 +15,3 @@ build/
 .ruff_cache/
 .pytest_cache/
 /results/
-/guide_classify/results/
-/isoform_aware_shakeoff_analysis/results/

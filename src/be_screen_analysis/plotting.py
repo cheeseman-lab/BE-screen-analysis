@@ -11,6 +11,14 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 BLUE, ORANGE, GRAY = "#2a78d6", "#eb6834", "#b4b3ad"
 INK, MUTED, GRID = "#0b0b0b", "#52514e", "#e5e5e2"
 CONTROL_GRAY = "#4a4a4a"  # control (null) distributions
+# Tyler's start hit categories (filtering.start_hit_category) -> legend name, colour; the
+# start_codon_analysis colours (notebooks/start_scatter.ipynb)
+HIT_CATEGORIES = {
+    "neither": ("Neither", "#CCCCCC"),
+    "annot_only": ("Annotated only", "#4477AA"),
+    "nc_only": ("Alt start only", "#CCBB44"),
+    "both": ("Both", "#EE6677"),
+}
 # label_all: label column spacing and offsets (data units), name offsets (points)
 LABEL_STEP = 0.2  # vertical spacing of the label column (LFC units)
 LABEL_GAP = 0.6  # label columns start this far outside their points ...

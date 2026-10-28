@@ -1,6 +1,7 @@
 import pandas as pd
 
 from be_screen_analysis.filtering import start_hit_category
+from be_screen_analysis.isoform import gene_count_table, isoform_lfc_table, single_guide_labels
 from be_screen_analysis.mageck import isoform_count_table
 
 
@@ -47,3 +48,45 @@ def test_start_hit_category_other_prefix():
         }
     )
     assert start_hit_category(df, None, 0.1, other="alt").tolist() == ["annot_only", "nc_only"]
+
+
+def test_single_guide_labels_and_isoform_lfc_table():
+    guides = pd.DataFrame(
+        {
+            "gene": ["A", "A", "CONTROL", "INTERGENIC"],
+            "gtf_gene": ["A", "A", None, None],
+            "knocked_out": ["Annotated_s1;Truncated_s2", "Annotated_s1", None, None],
+        },
+        index=["g1", "g2", "nt1", "ig1"],
+    )
+    control = guides["gene"].isin({"CONTROL", "INTERGENIC"})
+    labels = single_guide_labels(guides, control, guides["gene"] == "CONTROL")
+    assert labels["category"].tolist() == [
+        "GENE_TARGETING",
+        "GENE_TARGETING",
+        "NONTARGETING_CONTROL",
+        "INTERGENIC",
+    ]
+    counts = pd.DataFrame({"d0": [1, 2, 3, 4], "d1": [1, 2, 3, 4]}, index=guides.index)
+    assert gene_count_table(counts, labels)["Gene"].tolist() == ["A", "A", "CONTROL", "INTERGENIC"]
+
+    scaffold = pd.DataFrame(
+        {
+            "gene": ["A", "A"],
+            "start_id": ["Annotated_s1", "Truncated_s2"],
+            "kind": ["Annotated", "Truncated"],
+            "codon": ["ATG", "CTG"],
+            "provenance": ["gencode", "hela"],
+            "in_frame_main": [True, True],
+        }
+    )
+    stats = lambda lfc: pd.DataFrame(  # noqa: E731
+        {"lfc": lfc, "neg_fdr": [0.01] * len(lfc), "pos_fdr": [1.0] * len(lfc)}
+    )
+    gene_stats = stats([-1.0]).set_axis(["A"])
+    iso = stats([-1.0, -3.0]).set_axis(["A|Annotated_s1", "A|Truncated_s2"])
+    out = isoform_lfc_table(labels, scaffold, gene_stats, iso).iloc[0]
+    assert out["annot_num_constructs"] == 2 and out["alt_num_constructs"] == 1
+    assert out["alt_ko_constructs"] == "g1"
+    assert not out["same_as_annotated"]
+    assert out["delta_lfc"] == -2.0

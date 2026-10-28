@@ -1,21 +1,23 @@
 """Alternative starts that are a hit in several screens, shown in each screen's LFC space.
 
 A start is a hit in a screen when Tyler's hit category (neg or pos FDR < 0.1, annotated or
-alternative start; filtering.start_hit_category) is not "neither", among the starts with their
-own construct set (same_as_annotated False, both starts tested).
+alternative start) is not "neither", among the starts with their own construct set
+(isoform.distinct_starts, isoform.shared_hits). Results in results/isoform_aware_shakeoff/,
+figures in figures/isoform_aware_shakeoff/:
 
-results/shared_hits.csv  one row per start that is a hit in all of S1, S5 and K562: gene,
+shared_hits.csv  one row per start that is a hit in all of S1, S5 and K562: gene,
     alt_start_id, alt_kind, then per screen {lib}_annot_lfc, {lib}_alt_lfc, {lib}_delta_lfc,
     {lib}_alt_num_constructs, {lib}_category
-results/shared_hits_{a}_{b}.csv  the same for each pair of screens (hit in both a and b)
-figures/shared_hits_s1_s5_k562.png  one panel per screen: annotated (x) vs alternative (y) start
+shared_hits_{a}_{b}.csv  the same for each pair of screens (hit in both a and b)
+shared_hits_s1_s5_k562.png  one panel per screen: annotated (x) vs alternative (y) start
     LFC of every start with its own construct set in gray (truncated and internal together), the
     starts that are a hit in all three coloured by their hit category in that screen, labelled.
-figures/shared_hits_pairwise.png  one column per pair of screens (S1-S5, S1-K562, S5-K562), the
+shared_hits_pairwise.png  one column per pair of screens (S1-S5, S1-K562, S5-K562), the
     pair's first screen on top and second below; each panel highlights the starts that are a hit
     in both, labelled by the largest |delta_lfc| up to MAX_LABELS per panel.
 
-Run run_isoform_mageck.py for s1, s5 and k562 first:  python plot_shared_hits.py
+Run run_isoform_mageck.py for s1, s5 and k562 first; from the repo root:
+  python scripts/isoform_aware_shakeoff/plot_shared_hits.py
 """
 
 from itertools import combinations
@@ -24,44 +26,30 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from plot_annot_vs_truncated import CATS, COMPARISONS, FDR_THRESH, MAX_LABELS
 
-from be_screen_analysis.filtering import start_hit_category
-from be_screen_analysis.plotting import GRID, MUTED, label_all, style
+from be_screen_analysis.isoform import (
+    COMPARISON_LABELS,
+    HIT_FDR,
+    START_KEY,
+    distinct_starts,
+    shared_hits,
+)
+from be_screen_analysis.plotting import GRID, HIT_CATEGORIES, MUTED, label_all, style
 
-ROOT = Path(__file__).resolve().parents[1]
-RESULTS = ROOT / "isoform_aware_shakeoff_analysis" / "results"
-FIG_DIR = ROOT / "isoform_aware_shakeoff_analysis" / "figures"
+ROOT = Path(__file__).resolve().parents[2]
+RESULTS = ROOT / "results" / "isoform_aware_shakeoff"
+FIG_DIR = ROOT / "figures" / "isoform_aware_shakeoff"
 LIBS = ["s1", "s5", "k562"]
-KEY = ["gene", "alt_start_id"]
-STAT_COLS = ["annot_lfc", "alt_lfc", "delta_lfc", "alt_num_constructs", "category"]
+MAX_LABELS = 30  # per panel, the largest |delta_lfc| first
 LEGEND_ROOM = 0.3  # axis room above the highest point, as a fraction of the data range
-
-
-def distinct_starts(lib: str) -> pd.DataFrame:
-    """Starts with their own construct set in ``lib``, with a hit ``category`` column."""
-    t = pd.read_csv(RESULTS / lib / "gene_isoform_lfc.csv")
-    t = t[~t["same_as_annotated"].astype(bool)].dropna(subset=["annot_lfc", "alt_lfc"])
-    return t.assign(category=start_hit_category(t, None, FDR_THRESH, other="alt"))
-
-
-def shared_table(starts: dict[str, pd.DataFrame], libs: list[str]) -> pd.DataFrame:
-    """Starts that are a hit in every screen of ``libs``, with each screen's stats side by side."""
-    table = None
-    for lib in libs:
-        d = starts[lib]
-        hit = d.loc[d["category"] != "neither", [*KEY, "alt_kind", *STAT_COLS]]
-        hit = hit.rename(columns={c: f"{lib}_{c}" for c in STAT_COLS})
-        table = hit if table is None else table.merge(hit.drop(columns="alt_kind"), on=KEY)
-    return table.sort_values(KEY).reset_index(drop=True)
 
 
 def panel(ax: plt.Axes, d: pd.DataFrame, shared: pd.DataFrame, lib: str, title: str) -> None:
     """``lib``'s starts in gray with the ``shared`` starts coloured by hit category, labelled."""
-    h = d.merge(shared[KEY], on=KEY)
+    h = d.merge(shared[START_KEY], on=START_KEY)
     ax.scatter(d["annot_lfc"], d["alt_lfc"], s=5, color=GRID, linewidths=0, zorder=1,
                label=f"other starts (n = {len(d) - len(h):,})")  # fmt: skip
-    for c, (name, color) in CATS.items():
+    for c, (name, color) in HIT_CATEGORIES.items():
         m = h["category"] == c
         if m.any():
             ax.scatter(h.loc[m, "annot_lfc"], h.loc[m, "alt_lfc"], s=18, color=color,
@@ -75,7 +63,7 @@ def panel(ax: plt.Axes, d: pd.DataFrame, shared: pd.DataFrame, lib: str, title: 
     style(ax)
     ax.axhline(0, color=MUTED, linewidth=0.8)
     ax.axvline(0, color=MUTED, linewidth=0.8)
-    ax.set_xlabel(f"annotated start LFC ({COMPARISONS[lib]})")
+    ax.set_xlabel(f"annotated start LFC ({COMPARISON_LABELS[lib]})")
     ax.set_ylabel("alternative start LFC")
     ax.set_title(title, loc="left", fontsize=10)
     ax.legend(frameon=False, fontsize=7, loc="upper left")
@@ -94,10 +82,12 @@ def save(fig: plt.Figure, name: str) -> None:  # noqa: D103
 
 
 def main() -> None:  # noqa: D103
-    starts = {lib: distinct_starts(lib) for lib in LIBS}
-    hit = f"(neg or pos FDR < {FDR_THRESH})"
+    starts = {
+        lib: distinct_starts(pd.read_csv(RESULTS / lib / "gene_isoform_lfc.csv")) for lib in LIBS
+    }
+    hit = f"(neg or pos FDR < {HIT_FDR})"
 
-    table = shared_table(starts, LIBS)
+    table = shared_hits(starts, LIBS)
     table.to_csv(RESULTS / "shared_hits.csv", index=False)
     print(f"{len(table)} starts are a hit in all of {', '.join(LIBS)} -> shared_hits.csv")
     fig, axes = plt.subplots(1, len(LIBS), figsize=(5.2 * len(LIBS), 5.4))
@@ -115,7 +105,7 @@ def main() -> None:  # noqa: D103
     fig.suptitle(f"Alternative starts that are a hit in both screens of each pair {hit}",
                  x=0.01, ha="left", fontsize=11)  # fmt: skip
     for col, (a, b) in zip(axes.T, pairs):
-        shared = shared_table(starts, [a, b])
+        shared = shared_hits(starts, [a, b])
         shared.to_csv(RESULTS / f"shared_hits_{a}_{b}.csv", index=False)
         print(f"{a} + {b}: {len(shared)} shared hits -> shared_hits_{a}_{b}.csv")
         pair = f"{a.upper()} + {b.upper()}: {len(shared)} shared hits"
