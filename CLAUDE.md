@@ -60,6 +60,20 @@ Analysis of Tyler's ABE base editing screen of start and stop codons. Code lives
   zero-read dropouts (~2% of K562 guides) drive most large isoform differences, and the
   differences do not replicate between screens (S1 vs K562 delta r = 0.07); S1 / K562 hit overlap
   reflects shared essential genes.
+- `isoform_aware_OPS/`: the aconcagua optical pooled screen (HeLa; DAPI / tubulin / gH2AX /
+  phalloidin). Inputs and constants in `ops.py`: brieflow config (`barcode_library.tsv`,
+  `pool10_design.tsv`) in the local clone `/lab/barcheese01/ating/aconcagua-analysis/analysis/config/`,
+  read-only feature outputs in
+  `/lab/ops_analysis_hdd/cheeseman/aconcagua-analysis/analysis/brieflow_output/aggregate/`
+  (`CeCl-all_..._features_singlecell.parquet`, 31M cells x 1,675 columns, per-plate/well
+  MAD-normalised on nontargeting cells; `_features_constructs.tsv` / `_features_genes.tsv`, the
+  per-guide / per-gene medians). Cells are assigned by an in-situ read of the spacer's first 11 nt:
+  `cell_barcode_0` = barcode, `gene_symbol_0` = gene. The OPS library (pool10 dialout 0/1) is the S1
+  library (all 20,445 spacers, unique 11-nt prefixes), so
+  `scripts/isoform_aware_OPS/classify_ops_guides.py` maps each barcode to its spacer
+  (`ops.barcode_spacers`) and takes the S1 guide-classification labels ->
+  `results/isoform_aware_OPS/ops_guide_isoforms.csv` (one row per barcode; run
+  guide_classification first).
 
 The current external comparison is the anti-mitotic K562 CRISPR KO screen (JCB 2024, Table S1;
 `data/anti-mt_K562/`: `GW_counts.csv`, `GW_median_lfc.csv`, `Table1_legend_GW.csv`). Use only the
