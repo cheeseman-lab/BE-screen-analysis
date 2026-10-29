@@ -8,18 +8,15 @@ from pathlib import Path
 
 import pandas as pd
 
-OPS_DIR = Path("/lab/barcheese01/ating/aconcagua-analysis/analysis")
-OPS_CONFIG = OPS_DIR / "config"
-BARCODE_LIBRARY = OPS_CONFIG / "barcode_library.tsv"
-POOL_DESIGN = OPS_CONFIG / "pool10_design.tsv"
-# brieflow aggregate outputs (read-only): single-cell parquets and per-guide / per-gene TSVs
-AGGREGATE_DIR = Path(
-    "/lab/ops_analysis_hdd/cheeseman/aconcagua-analysis/analysis/brieflow_output/aggregate"
-)
+# copies of the brieflow config (barcode library, pool design) and aggregate feature TSVs; the
+# single-cell parquet is a symlink to brieflow_output/aggregate/parquets/ on ops_analysis_hdd
+OPS_DATA = Path(__file__).resolve().parents[2] / "data" / "OPS_aconcagua"
+BARCODE_LIBRARY = OPS_DATA / "barcode_library.tsv"
+POOL_DESIGN = OPS_DATA / "pool10_design.tsv"
 FEATURE_PREFIX = "CeCl-all_ChCo-DAPI_TUBULIN_GH2AX_PHALLOIDIN__features"
-CONSTRUCT_FEATURES = AGGREGATE_DIR / "tsvs" / f"{FEATURE_PREFIX}_constructs.tsv"
-GENE_FEATURES = AGGREGATE_DIR / "tsvs" / f"{FEATURE_PREFIX}_genes.tsv"
-SINGLECELL_FEATURES = AGGREGATE_DIR / "parquets" / f"{FEATURE_PREFIX}_singlecell.parquet"
+CONSTRUCT_FEATURES = OPS_DATA / f"{FEATURE_PREFIX}_constructs.tsv"
+GENE_FEATURES = OPS_DATA / f"{FEATURE_PREFIX}_genes.tsv"
+SINGLECELL_FEATURES = OPS_DATA / f"{FEATURE_PREFIX}_singlecell.parquet"
 PREFIX_LENGTH = 11  # SBS cycles read in situ
 OPS_DIALOUTS = (0, 1)  # sub-libraries of the pool brieflow kept (create_dialout_filter([0, 1]))
 
