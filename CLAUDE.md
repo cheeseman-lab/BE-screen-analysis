@@ -73,7 +73,14 @@ Analysis of Tyler's ABE base editing screen of start and stop codons. Code lives
   `scripts/isoform_aware_OPS/classify_ops_guides.py` maps each barcode to its spacer
   (`ops.barcode_spacers`) and takes the S1 guide-classification labels ->
   `results/isoform_aware_OPS/ops_guide_isoforms.csv` (one row per barcode; run
-  guide_classification first).
+  guide_classification first). brieflow's gene table is the median of a gene's construct
+  medians; `aggregate_isoform_features.py` redoes that step per start isoform (median over the
+  construct rows of the guides that knock the start out; `ops.guide_features`,
+  `ops.isoform_features`) -> `guide_features.parquet` (labels + construct features per barcode),
+  `isoform_features.parquet` (one row per start with >= 1 guide, keyed by gtf_gene, plus the 250
+  nontargeting barcodes; gene, start_id, kind, same_as_annotated, n_guides, barcodes, summed
+  cell_count, features; other start details by joining start_scaffold.csv). Annotated starts
+  with all of a gene's guides reproduce the brieflow gene row (max |diff| 3e-6).
 
 The current external comparison is the anti-mitotic K562 CRISPR KO screen (JCB 2024, Table S1;
 `data/anti-mt_K562/`: `GW_counts.csv`, `GW_median_lfc.csv`, `Table1_legend_GW.csv`). Use only the
